@@ -8,7 +8,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from ....config import ApprovalMode, Config
+from ...config import ApprovalMode, Config
 from ...utils.edit_corrector import ensure_correct_edit
 from ...utils.paths import is_within_root, make_relative, shorten_path
 from ..base.modifiable_tool import ModifiableTool, ModifyContext

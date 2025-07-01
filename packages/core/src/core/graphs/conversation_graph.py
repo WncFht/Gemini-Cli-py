@@ -11,9 +11,12 @@ from typing import Any
 from langgraph.graph import END, StateGraph
 from langgraph.graph.graph import CompiledGraph
 
-from ...tools.registry import ToolRegistry
-from ..core import Config, EventEmitter
-from ..core.nodes.chat_nodes import (
+from ...tools.base import ToolRegistry
+from ..config import Config
+from ..events import EventEmitter
+from ..graphs.states import ConversationState
+from ..graphs.tool_execution_graph import create_tool_execution_graph
+from ..nodes.chat_nodes import (
     ChatNodeContext,
     call_model_node,
     check_continuation_edge,
@@ -21,8 +24,8 @@ from ..core.nodes.chat_nodes import (
     check_tool_calls_edge,
     process_user_input_node,
 )
-from ..graphs.states import ConversationState
-from ..graphs.tool_execution_graph import create_tool_execution_graph
+from ..prompts.system_prompts import get_compression_prompt
+from ..token_limits import token_limit
 
 logger = logging.getLogger(__name__)
 
@@ -72,15 +75,83 @@ async def compress_history_node(
     state: ConversationState,
     context: ChatNodeContext,
 ) -> ConversationState:
-    """压缩历史节点"""
+    """
+    Compresses the conversation history if it exceeds a token threshold.
+    This logic is migrated from `tryCompressChat` in `client.ts`.
+    """
     logger.info("Compressing history...")
+    history = state.get("history", [])
+    if not history:
+        return state
 
-    # TODO: 实际实现
-    # 1. 检查token使用量
-    # 2. 生成历史摘要
-    # 3. 更新历史
+    # This part requires a content_generator instance in the context
+    generator = context.get_content_generator()
+    model = context.config.get_model()
 
-    return state
+    try:
+        token_count_response = await generator.count_tokens(
+            model=model, contents=history
+        )
+        original_token_count = token_count_response.get("totalTokens", 0)
+
+        limit = token_limit(model)
+        if not limit or original_token_count < 0.95 * limit:
+            return state
+
+        logger.info(
+            f"History ({original_token_count} tokens) exceeds 95% of limit ({limit}). Compressing."
+        )
+
+        compression_prompt = get_compression_prompt()
+        contents = history + [
+            {"role": "user", "parts": [{"text": compression_prompt}]}
+        ]
+
+        # Using the main client's generate_content for summarization
+        client = context.config.get_gemini_client()
+        summary_response = await client.generate_content(
+            contents=contents, generation_config={}, abort_signal=None
+        )
+        summary_text = client._get_response_text(summary_response)
+
+        if not summary_text:
+            logger.warning(
+                "History compression failed: model did not return a summary."
+            )
+            return state
+
+        new_history = [
+            {"role": "user", "parts": [{"text": summary_text}]},
+            {
+                "role": "model",
+                "parts": [{"text": "Got it. Thanks for the summary!"}],
+            },
+        ]
+
+        # Optionally, emit a chat_compressed event
+        context.emitter.emit(
+            "chat_compressed",
+            {
+                "original_token_count": original_token_count,
+                "new_token_count": "unknown",
+            },
+        )
+
+        state["history"] = new_history
+        return state
+
+    except Exception as e:
+        logger.error(f"Error during history compression: {e}")
+        return state
+
+
+def should_compress_edge(state: ConversationState) -> str:
+    """
+    Checks if the history should be compressed before calling the model.
+    """
+    # For now, we always go to compression node, which will then check the token count.
+    # A more optimized way would be to pass token count in state.
+    return "compress_history"
 
 
 def create_conversation_graph(
@@ -121,7 +192,10 @@ def create_conversation_graph(
     graph.add_node("check_continuation", check_continuation)
 
     # 添加边
-    graph.add_edge("process_input", "call_model")
+    graph.add_edge(
+        "process_input", "compress_history"
+    )  # Check for compression first
+    graph.add_edge("compress_history", "call_model")  # Then call model
 
     # 条件边
     graph.add_conditional_edges(
