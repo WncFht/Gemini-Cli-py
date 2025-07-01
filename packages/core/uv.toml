@@ -1,0 +1,8 @@
+# 使用系统 Python 而不是下载新的
+python-preference = "system"
+
+# 始终使用最新的包版本
+upgrade = true
+
+# 使用更快的解析器
+resolution = "highest" 
