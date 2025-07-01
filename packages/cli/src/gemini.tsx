@@ -4,39 +4,45 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React from 'react';
+import {
+  ApprovalMode,
+  AuthType,
+  Config,
+  EditTool,
+  logUserPrompt,
+  sessionId,
+  ShellTool,
+  WriteFileTool,
+} from '@google/gemini-cli-core';
 import { render } from 'ink';
-import { AppWrapper } from './ui/App.js';
-import { loadCliConfig } from './config/config.js';
-import { readStdin } from './utils/readStdin.js';
+import { spawn } from 'node:child_process';
+import os from 'node:os';
 import { basename } from 'node:path';
 import v8 from 'node:v8';
-import os from 'node:os';
-import { spawn } from 'node:child_process';
-import { start_sandbox } from './utils/sandbox.js';
+import React from 'react';
+import { validateAuthMethod } from './config/auth.js';
+import { loadCliConfig } from './config/config.js';
+import { Extension, loadExtensions } from './config/extension.js';
 import {
   LoadedSettings,
   loadSettings,
   SettingScope,
 } from './config/settings.js';
-import { themeManager } from './ui/themes/theme-manager.js';
-import { getStartupWarnings } from './utils/startupWarnings.js';
 import { runNonInteractive } from './nonInteractiveCli.js';
-import { loadExtensions, Extension } from './config/extension.js';
-import { cleanupCheckpoints } from './utils/cleanup.js';
-import {
-  ApprovalMode,
-  Config,
-  EditTool,
-  ShellTool,
-  WriteFileTool,
-  sessionId,
-  logUserPrompt,
-  AuthType,
-} from '@google/gemini-cli-core';
-import { validateAuthMethod } from './config/auth.js';
+import { AppWrapper } from './ui/App.js';
 import { setMaxSizedBoxDebugging } from './ui/components/shared/MaxSizedBox.js';
+import { themeManager } from './ui/themes/theme-manager.js';
+import { cleanupCheckpoints } from './utils/cleanup.js';
+import { readStdin } from './utils/readStdin.js';
+import { start_sandbox } from './utils/sandbox.js';
+import { getStartupWarnings } from './utils/startupWarnings.js';
 
+/**
+ * 根据系统总内存计算并返回 Node.js 的内存限制参数。
+ * 目的是在内存充足的情况下，自动增加 Node.js 的堆大小，以提升性能。
+ * @param config - 应用配置实例。
+ * @returns {string[]} - 一个包含 `--max-old-space-size` 参数的数组，如果需要的话。
+ */
 function getNodeMemoryArgs(config: Config): string[] {
   const totalMemoryMB = os.totalmem() / (1024 * 1024);
   const heapStats = v8.getHeapStatistics();
@@ -44,7 +50,7 @@ function getNodeMemoryArgs(config: Config): string[] {
     heapStats.heap_size_limit / 1024 / 1024,
   );
 
-  // Set target to 50% of total memory
+  // 将目标堆大小设置为总内存的50%
   const targetMaxOldSpaceSizeInMB = Math.floor(totalMemoryMB * 0.5);
   if (config.getDebugMode()) {
     console.debug(
@@ -52,10 +58,12 @@ function getNodeMemoryArgs(config: Config): string[] {
     );
   }
 
+  // 如果设置了环境变量，则不进行重启动
   if (process.env.GEMINI_CLI_NO_RELAUNCH) {
     return [];
   }
 
+  // 如果目标大小大于当前大小，则返回需要添加的启动参数
   if (targetMaxOldSpaceSizeInMB > currentMaxOldSpaceSizeMb) {
     if (config.getDebugMode()) {
       console.debug(
@@ -68,8 +76,13 @@ function getNodeMemoryArgs(config: Config): string[] {
   return [];
 }
 
+/**
+ * 使用额外的参数重新启动当前应用进程。
+ * @param additionalArgs - 需要附加到启动命令的参数数组。
+ */
 async function relaunchWithAdditionalArgs(additionalArgs: string[]) {
   const nodeArgs = [...additionalArgs, ...process.argv.slice(1)];
+  // 设置环境变量，防止无限循环重启动
   const newEnv = { ...process.env, GEMINI_CLI_NO_RELAUNCH: 'true' };
 
   const child = spawn(process.execPath, nodeArgs, {
@@ -81,11 +94,17 @@ async function relaunchWithAdditionalArgs(additionalArgs: string[]) {
   process.exit(0);
 }
 
+/**
+ * 【核心】CLI 应用的主入口函数。
+ * 负责应用的引导、配置加载、环境检查、模式判断和最终的渲染。
+ */
 export async function main() {
   const workspaceRoot = process.cwd();
+  // 1. 加载所有配置和设置
   const settings = loadSettings(workspaceRoot);
 
   await cleanupCheckpoints();
+  // 如果配置文件有误，则打印错误并退出
   if (settings.errors.length > 0) {
     for (const error of settings.errors) {
       let errorMessage = `Error in ${error.path}: ${error.message}`;
@@ -101,8 +120,7 @@ export async function main() {
   const extensions = loadExtensions(workspaceRoot);
   const config = await loadCliConfig(settings.merged, extensions, sessionId);
 
-  // set default fallback to gemini api key
-  // this has to go after load cli because thats where the env is set
+  // 如果用户未选择认证方式但设置了 GEMINI_API_KEY，则自动设为默认值
   if (!settings.merged.selectedAuthType && process.env.GEMINI_API_KEY) {
     settings.setValue(
       SettingScope.User,
@@ -113,34 +131,35 @@ export async function main() {
 
   setMaxSizedBoxDebugging(config.getDebugMode());
 
-  // Initialize centralized FileDiscoveryService
+  // 初始化核心服务
   config.getFileService();
   if (config.getCheckpointingEnabled()) {
     try {
       await config.getGitService();
     } catch {
-      // For now swallow the error, later log it.
+      // 暂时忽略错误，后续可能会记录日志
     }
   }
-
+  
+  // 设置主题
   if (settings.merged.theme) {
     if (!themeManager.setActiveTheme(settings.merged.theme)) {
-      // If the theme is not found during initial load, log a warning and continue.
-      // The useThemeCommand hook in App.tsx will handle opening the dialog.
+      // 如果主题未找到，打印警告，UI层会处理后续对话框
       console.warn(`Warning: Theme "${settings.merged.theme}" not found.`);
     }
   }
 
+  // 2. 检查并配置内存
   const memoryArgs = settings.merged.autoConfigureMaxOldSpaceSize
     ? getNodeMemoryArgs(config)
     : [];
 
-  // hop into sandbox if we are outside and sandboxing is enabled
+  // 3. 检查并进入沙箱环境（如果配置了）
   if (!process.env.SANDBOX) {
     const sandboxConfig = config.getSandbox();
     if (sandboxConfig) {
       if (settings.merged.selectedAuthType) {
-        // Validate authentication here because the sandbox will interfere with the Oauth2 web redirect.
+        // 在进入沙箱前验证认证，因为沙箱会影响OAuth重定向
         try {
           const err = validateAuthMethod(settings.merged.selectedAuthType);
           if (err) {
@@ -155,8 +174,7 @@ export async function main() {
       await start_sandbox(sandboxConfig, memoryArgs);
       process.exit(0);
     } else {
-      // Not in a sandbox and not entering one, so relaunch with additional
-      // arguments to control memory usage if needed.
+      // 如果不需要进入沙箱，但需要增加内存，则重启动应用
       if (memoryArgs.length > 0) {
         await relaunchWithAdditionalArgs(memoryArgs);
         process.exit(0);
@@ -166,9 +184,11 @@ export async function main() {
   let input = config.getQuestion();
   const startupWarnings = await getStartupWarnings();
 
-  // Render UI, passing necessary config values. Check that there is no command line question.
+  // 4. 【核心路由】判断应用运行模式
+  // 如果是TTY（交互式终端）并且没有通过命令行直接提供问题，则进入交互式UI模式
   if (process.stdin.isTTY && input?.length === 0) {
     setWindowTitle(basename(workspaceRoot), settings);
+    // 使用 ink 渲染 React 组件，启动交互式应用
     render(
       <React.StrictMode>
         <AppWrapper
@@ -181,8 +201,7 @@ export async function main() {
     );
     return;
   }
-  // If not a TTY, read from stdin
-  // This is for cases where the user pipes input directly into the command
+  // 如果不是 TTY，说明有内容通过管道 (pipe) 传入
   if (!process.stdin.isTTY) {
     input += await readStdin();
   }
@@ -198,17 +217,23 @@ export async function main() {
     prompt_length: input.length,
   });
 
-  // Non-interactive mode handled by runNonInteractive
+  // 5. 如果是以上条件之外的情况（例如，通过命令行提供了问题），则进入非交互模式
   const nonInteractiveConfig = await loadNonInteractiveConfig(
     config,
     extensions,
     settings,
   );
-
+  
+  // 执行非交互式逻辑并退出
   await runNonInteractive(nonInteractiveConfig, input);
   process.exit(0);
 }
 
+/**
+ * 设置终端窗口的标题。
+ * @param title - 标题内容。
+ * @param settings - 加载的设置，用于检查是否隐藏标题。
+ */
 function setWindowTitle(title: string, settings: LoadedSettings) {
   if (!settings.merged.hideWindowTitle) {
     process.stdout.write(`\x1b]2; Gemini - ${title} \x07`);
@@ -219,9 +244,9 @@ function setWindowTitle(title: string, settings: LoadedSettings) {
   }
 }
 
-// --- Global Unhandled Rejection Handler ---
+// --- 全局未处理的 Promise Rejection 处理器 ---
 process.on('unhandledRejection', (reason, _promise) => {
-  // Log other unexpected unhandled rejections as critical errors
+  // 记录严重的、未预料到的错误
   console.error('=========================================');
   console.error('CRITICAL: Unhandled Promise Rejection!');
   console.error('=========================================');
@@ -230,10 +255,14 @@ process.on('unhandledRejection', (reason, _promise) => {
   if (!(reason instanceof Error)) {
     console.error(reason);
   }
-  // Exit for genuinely unhandled errors
+  // 对于真正的未处理错误，直接退出进程
   process.exit(1);
 });
 
+/**
+ * 加载非交互模式所需的配置。
+ * 主要工作是排除掉所有需要用户交互的工具（如shell, edit_file）。
+ */
 async function loadNonInteractiveConfig(
   config: Config,
   extensions: Extension[],
@@ -241,7 +270,7 @@ async function loadNonInteractiveConfig(
 ) {
   let finalConfig = config;
   if (config.getApprovalMode() !== ApprovalMode.YOLO) {
-    // Everything is not allowed, ensure that only read-only tools are configured.
+    // 如果不是 YOLO 模式，确保只使用只读工具
     const existingExcludeTools = settings.merged.excludeTools || [];
     const interactiveTools = [
       ShellTool.Name,
@@ -270,13 +299,14 @@ async function loadNonInteractiveConfig(
   );
 }
 
+/**
+ * 验证非交互模式下的认证方法。
+ */
 async function validateNonInterActiveAuth(
   selectedAuthType: AuthType | undefined,
   nonInteractiveConfig: Config,
 ) {
-  // making a special case for the cli. many headless environments might not have a settings.json set
-  // so if GEMINI_API_KEY is set, we'll use that. However since the oauth things are interactive anyway, we'll
-  // still expect that exists
+  // 特殊处理：如果未设置认证方式，但存在 GEMINI_API_KEY 环境变量，则自动使用它。
   if (!selectedAuthType && !process.env.GEMINI_API_KEY) {
     console.error(
       'Please set an Auth method in your .gemini/settings.json OR specify GEMINI_API_KEY env variable file before running',

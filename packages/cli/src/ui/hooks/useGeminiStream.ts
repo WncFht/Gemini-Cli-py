@@ -4,55 +4,60 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
-import { useInput } from 'ink';
 import {
   Config,
-  GeminiClient,
-  GeminiEventType as ServerGeminiEventType,
-  ServerGeminiStreamEvent as GeminiEvent,
   ServerGeminiContentEvent as ContentEvent,
-  ServerGeminiErrorEvent as ErrorEvent,
-  ServerGeminiChatCompressedEvent,
-  getErrorMessage,
-  isNodeError,
-  MessageSenderType,
-  ToolCallRequestInfo,
-  logUserPrompt,
-  GitService,
   EditorType,
+  ServerGeminiErrorEvent as ErrorEvent,
+  GeminiClient,
+  ServerGeminiStreamEvent as GeminiEvent,
+  getErrorMessage,
+  GitService,
+  isNodeError,
+  logUserPrompt,
+  MessageSenderType,
+  ServerGeminiChatCompressedEvent,
+  GeminiEventType as ServerGeminiEventType,
   ThoughtSummary,
+  ToolCallRequestInfo,
   UnauthorizedError,
   UserPromptEvent,
 } from '@google/gemini-cli-core';
 import { type Part, type PartListUnion } from '@google/genai';
+import { promises as fs } from 'fs';
+import { useInput } from 'ink';
+import path from 'path';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSessionStats } from '../contexts/SessionContext.js';
 import {
-  StreamingState,
   HistoryItem,
-  HistoryItemWithoutId,
   HistoryItemToolGroup,
+  HistoryItemWithoutId,
   MessageType,
+  StreamingState,
   ToolCallStatus,
 } from '../types.js';
 import { isAtCommand } from '../utils/commandUtils.js';
 import { parseAndFormatApiError } from '../utils/errorParsing.js';
-import { useShellCommandProcessor } from './shellCommandProcessor.js';
-import { handleAtCommand } from './atCommandProcessor.js';
 import { findLastSafeSplitPoint } from '../utils/markdownUtilities.js';
-import { useStateAndRef } from './useStateAndRef.js';
+import { handleAtCommand } from './atCommandProcessor.js';
+import { useShellCommandProcessor } from './shellCommandProcessor.js';
 import { UseHistoryManagerReturn } from './useHistoryManager.js';
 import { useLogger } from './useLogger.js';
-import { promises as fs } from 'fs';
-import path from 'path';
 import {
-  useReactToolScheduler,
   mapToDisplay as mapTrackedToolCallsToDisplay,
-  TrackedToolCall,
-  TrackedCompletedToolCall,
   TrackedCancelledToolCall,
+  TrackedCompletedToolCall,
+  TrackedToolCall,
+  useReactToolScheduler,
 } from './useReactToolScheduler.js';
-import { useSessionStats } from '../contexts/SessionContext.js';
+import { useStateAndRef } from './useStateAndRef.js';
 
+/**
+ * 合并多个 PartListUnion 数组为一个。
+ * @param list - 要合并的 PartListUnion 数组。
+ * @returns {PartListUnion} - 合并后的单个 PartListUnion。
+ */
 export function mergePartListUnions(list: PartListUnion[]): PartListUnion {
   const resultParts: PartListUnion = [];
   for (const item of list) {
@@ -72,8 +77,14 @@ enum StreamProcessingStatus {
 }
 
 /**
- * Manages the Gemini stream, including user input, command processing,
- * API interaction, and tool call lifecycle.
+ * 【核心 Hook】`useGeminiStream` 是驱动整个交互式聊天体验的核心 React Hook。
+ * 它封装了与 Gemini API 交互的所有复杂逻辑，包括：
+ * - 管理流式响应的状态 (空闲, 响应中, 等待确认)。
+ * - 处理用户输入，并将其分发给命令处理器（斜杠命令、@命令、shell命令）。
+ * - 调用 `GeminiClient` 发起聊天请求。
+ * - 监听并处理从服务端返回的结构化事件流（文本、工具调用、思考过程等）。
+ * - 与 `useReactToolScheduler` 协作，调度并管理工具调用的整个生命周期。
+ * - 处理请求取消、错误和鉴权失败等边界情况。
  */
 export const useGeminiStream = (
   geminiClient: GeminiClient,
@@ -109,13 +120,13 @@ export const useGeminiStream = (
     return new GitService(config.getProjectRoot());
   }, [config]);
 
+  // 1. 【工具调度】初始化 useReactToolScheduler hook
+  //    - `onComplete` 回调会在一批工具全部执行完毕后被调用。
   const [toolCalls, scheduleToolCalls, markToolsAsSubmitted] =
     useReactToolScheduler(
       (completedToolCallsFromScheduler) => {
-        // This onComplete is called when ALL scheduled tools for a given batch are done.
+        // 当一批工具调用全部完成后，将它们的最终状态（成功/失败/取消）作为一个历史项添加到UI中。
         if (completedToolCallsFromScheduler.length > 0) {
-          // Add the final state of these tools to the history for display.
-          // The new useEffect will handle submitting their responses.
           addItem(
             mapTrackedToolCallsToDisplay(
               completedToolCallsFromScheduler as TrackedToolCall[],
@@ -129,6 +140,7 @@ export const useGeminiStream = (
       getPreferredEditor,
     );
 
+  // 计算当前正在等待或执行中的工具调用，用于UI展示
   const pendingToolCallGroupDisplay = useMemo(
     () =>
       toolCalls.length ? mapTrackedToolCallsToDisplay(toolCalls) : undefined,
@@ -148,11 +160,15 @@ export const useGeminiStream = (
     config,
     geminiClient,
   );
-
+  
+  // 2. 【状态管理】通过 `useMemo` 计算并派生出当前的流状态
+  //    这是UI判断应该显示输入框、加载动画还是确认按钮的核心依据。
   const streamingState = useMemo(() => {
+    // 如果有任何一个工具在等待用户批准，则状态为 `WaitingForConfirmation`
     if (toolCalls.some((tc) => tc.status === 'awaiting_approval')) {
       return StreamingState.WaitingForConfirmation;
     }
+    // 如果正在从API接收响应，或者有任何一个工具正在执行/调度/验证/等待提交，则状态为 `Responding`
     if (
       isResponding ||
       toolCalls.some(
@@ -169,9 +185,11 @@ export const useGeminiStream = (
     ) {
       return StreamingState.Responding;
     }
+    // 否则，状态为空闲 `Idle`
     return StreamingState.Idle;
   }, [isResponding, toolCalls]);
-
+  
+  // 3. 【用户交互】使用 `ink` 的 `useInput` hook 来监听用户键盘输入，处理取消操作
   useInput((_input, key) => {
     if (streamingState === StreamingState.Responding && key.escape) {
       if (turnCancelledRef.current) {
@@ -193,7 +211,15 @@ export const useGeminiStream = (
       setIsResponding(false);
     }
   });
-
+  
+  /**
+   * 在将查询发送给 Gemini 之前对其进行预处理。
+   * 这包括记录日志、分发给不同的命令处理器（斜杠、@、shell）等。
+   * @param query - 用户的原始输入。
+   * @param userMessageTimestamp - 消息时间戳。
+   * @param abortSignal - 中止信号。
+   * @returns 一个对象，包含处理后的查询和是否应继续发送给Gemini的标志。
+   */
   const prepareQueryForGemini = useCallback(
     async (
       query: PartListUnion,
@@ -221,16 +247,16 @@ export const useGeminiStream = (
         onDebugMessage(`User query: '${trimmedQuery}'`);
         await logger?.logMessage(MessageSenderType.USER, trimmedQuery);
 
-        // Handle UI-only commands first
+        // 分发给斜杠命令处理器
         const slashCommandResult = await handleSlashCommand(trimmedQuery);
         if (typeof slashCommandResult === 'boolean' && slashCommandResult) {
-          // Command was handled, and it doesn't require a tool call from here
+          // 如果命令已处理且不需后续操作，则直接返回
           return { queryToSend: null, shouldProceed: false };
         } else if (
           typeof slashCommandResult === 'object' &&
           slashCommandResult.shouldScheduleTool
         ) {
-          // Slash command wants to schedule a tool call (e.g., /memory add)
+          // 如果斜杠命令希望直接调度一个工具（例如 /memory add）
           const { toolName, toolArgs } = slashCommandResult;
           if (toolName && toolArgs) {
             const toolCallRequest: ToolCallRequestInfo = {
@@ -239,16 +265,18 @@ export const useGeminiStream = (
               args: toolArgs,
               isClientInitiated: true,
             };
+            // 直接调用工具调度器，然后结束本次流程
             scheduleToolCalls([toolCallRequest], abortSignal);
           }
           return { queryToSend: null, shouldProceed: false }; // Handled by scheduling the tool
         }
-
+        
+        // 分发给 Shell 命令处理器
         if (shellModeActive && handleShellCommand(trimmedQuery, abortSignal)) {
           return { queryToSend: null, shouldProceed: false };
         }
 
-        // Handle @-commands (which might involve tool calls)
+        // 分发给 @ 命令处理器
         if (isAtCommand(trimmedQuery)) {
           const atCommandResult = await handleAtCommand({
             query: trimmedQuery,
@@ -263,7 +291,7 @@ export const useGeminiStream = (
           }
           localQueryToSendToGemini = atCommandResult.processedQuery;
         } else {
-          // Normal query for Gemini
+          // 如果是普通查询，添加到历史记录并准备发送
           addItem(
             { type: MessageType.USER, text: trimmedQuery },
             userMessageTimestamp,
@@ -271,7 +299,7 @@ export const useGeminiStream = (
           localQueryToSendToGemini = trimmedQuery;
         }
       } else {
-        // It's a function response (PartListUnion that isn't a string)
+        // 如果查询不是字符串，说明它是一个工具调用的响应，直接准备发送
         localQueryToSendToGemini = query;
       }
 
@@ -295,8 +323,12 @@ export const useGeminiStream = (
     ],
   );
 
-  // --- Stream Event Handlers ---
+  // --- 流事件处理器 ---
 
+  /**
+   * 处理从后端发来的 'Content' 类型事件。
+   * 负责将流式文本块拼接起来，并以合适的时机更新UI上的"待定"消息项。
+   */
   const handleContentEvent = useCallback(
     (
       eventValue: ContentEvent['value'],
@@ -304,38 +336,33 @@ export const useGeminiStream = (
       userMessageTimestamp: number,
     ): string => {
       if (turnCancelledRef.current) {
-        // Prevents additional output after a user initiated cancel.
+        // 如果用户已取消，则阻止任何后续的UI更新
         return '';
       }
       let newGeminiMessageBuffer = currentGeminiMessageBuffer + eventValue;
+      // 如果当前的待定消息不是 gemini 类型，说明一个新的AI响应开始了
       if (
         pendingHistoryItemRef.current?.type !== 'gemini' &&
         pendingHistoryItemRef.current?.type !== 'gemini_content'
       ) {
         if (pendingHistoryItemRef.current) {
+          // 将上一个待定项（可能是工具调用组）固化到历史记录中
           addItem(pendingHistoryItemRef.current, userMessageTimestamp);
         }
+        // 创建一个新的 'gemini' 类型的待定项来接收文本
         setPendingHistoryItem({ type: 'gemini', text: '' });
         newGeminiMessageBuffer = eventValue;
       }
-      // Split large messages for better rendering performance. Ideally,
-      // we should maximize the amount of output sent to <Static />.
+      // 为了优化渲染性能，当消息变得很长时，将其分割成多个历史项
       const splitPoint = findLastSafeSplitPoint(newGeminiMessageBuffer);
       if (splitPoint === newGeminiMessageBuffer.length) {
-        // Update the existing message with accumulated content
+        // 如果不需要分割，则直接更新当前待定消息的内容
         setPendingHistoryItem((item) => ({
           type: item?.type as 'gemini' | 'gemini_content',
           text: newGeminiMessageBuffer,
         }));
       } else {
-        // This indicates that we need to split up this Gemini Message.
-        // Splitting a message is primarily a performance consideration. There is a
-        // <Static> component at the root of App.tsx which takes care of rendering
-        // content statically or dynamically. Everything but the last message is
-        // treated as static in order to prevent re-rendering an entire message history
-        // multiple times per-second (as streaming occurs). Prior to this change you'd
-        // see heavy flickering of the terminal. This ensures that larger messages get
-        // broken up so that there are more "statically" rendered.
+        // 如果需要分割，则将已完整的部分固化到历史记录中...
         const beforeText = newGeminiMessageBuffer.substring(0, splitPoint);
         const afterText = newGeminiMessageBuffer.substring(splitPoint);
         addItem(
@@ -347,6 +374,7 @@ export const useGeminiStream = (
           },
           userMessageTimestamp,
         );
+        // ...然后创建一个新的待定项来接收剩余的文本。
         setPendingHistoryItem({ type: 'gemini_content', text: afterText });
         newGeminiMessageBuffer = afterText;
       }
@@ -354,7 +382,8 @@ export const useGeminiStream = (
     },
     [addItem, pendingHistoryItemRef, setPendingHistoryItem],
   );
-
+  
+  /** 处理用户取消事件 */
   const handleUserCancelledEvent = useCallback(
     (userMessageTimestamp: number) => {
       if (turnCancelledRef.current) {
@@ -388,7 +417,8 @@ export const useGeminiStream = (
     },
     [addItem, pendingHistoryItemRef, setPendingHistoryItem],
   );
-
+  
+  /** 处理错误事件 */
   const handleErrorEvent = useCallback(
     (eventValue: ErrorEvent['value'], userMessageTimestamp: number) => {
       if (pendingHistoryItemRef.current) {
@@ -408,7 +438,8 @@ export const useGeminiStream = (
     },
     [addItem, pendingHistoryItemRef, setPendingHistoryItem, config],
   );
-
+  
+  /** 处理聊天历史压缩事件 */
   const handleChatCompressionEvent = useCallback(
     (eventValue: ServerGeminiChatCompressedEvent['value']) =>
       addItem(
@@ -424,7 +455,15 @@ export const useGeminiStream = (
       ),
     [addItem, config],
   );
-
+  
+  /**
+   * 【核心】处理从后端 GeminiClient 返回的所有流事件。
+   * 这是一个事件循环，根据事件类型分发到不同的处理器。
+   * @param stream - 从 `GeminiClient` 返回的异步事件流。
+   * @param userMessageTimestamp - 用户消息的时间戳。
+   * @param signal - 中止信号。
+   * @returns 处理状态。
+   */
   const processGeminiStreamEvents = useCallback(
     async (
       stream: AsyncIterable<GeminiEvent>,
@@ -446,6 +485,7 @@ export const useGeminiStream = (
             );
             break;
           case ServerGeminiEventType.ToolCallRequest:
+            // 收集所有工具调用请求
             toolCallRequests.push(event.value);
             break;
           case ServerGeminiEventType.UserCancelled:
@@ -462,15 +502,16 @@ export const useGeminiStream = (
             break;
           case ServerGeminiEventType.ToolCallConfirmation:
           case ServerGeminiEventType.ToolCallResponse:
-            // do nothing
+            // 在这一层不做任何处理
             break;
           default: {
-            // enforces exhaustive switch-case
+            // 强制 exhaustive switch-case 检查
             const unreachable: never = event;
             return unreachable;
           }
         }
       }
+      // 当流结束后，如果收集到了工具调用请求，则批量调度它们
       if (toolCallRequests.length > 0) {
         scheduleToolCalls(toolCallRequests, signal);
       }
@@ -485,9 +526,16 @@ export const useGeminiStream = (
       addUsage,
     ],
   );
-
+  
+  /**
+   * 提交查询的入口函数。
+   * 这是用户按下回车或工具调用结果返回后，驱动新一轮对话的核心。
+   * @param query - 要提交的查询或工具响应。
+   * @param options - 包含是否为连续对话的选项。
+   */
   const submitQuery = useCallback(
     async (query: PartListUnion, options?: { isContinuation: boolean }) => {
+      // 防止在响应中时重复提交
       if (
         (streamingState === StreamingState.Responding ||
           streamingState === StreamingState.WaitingForConfirmation) &&
@@ -497,11 +545,13 @@ export const useGeminiStream = (
 
       const userMessageTimestamp = Date.now();
       setShowHelp(false);
-
+      
+      // 创建新的 AbortController
       abortControllerRef.current = new AbortController();
       const abortSignal = abortControllerRef.current.signal;
       turnCancelledRef.current = false;
-
+      
+      // 1. 【预处理】调用 prepareQueryForGemini 对输入进行预处理和命令分发
       const { queryToSend, shouldProceed } = await prepareQueryForGemini(
         query,
         userMessageTimestamp,
@@ -511,7 +561,8 @@ export const useGeminiStream = (
       if (!shouldProceed || queryToSend === null) {
         return;
       }
-
+      
+      // 如果不是连续对话（即用户发起的新一轮），则重置会话统计
       if (!options?.isContinuation) {
         startNewTurn();
       }
@@ -520,7 +571,9 @@ export const useGeminiStream = (
       setInitError(null);
 
       try {
+        // 2. 【核心】调用 GeminiClient 的 sendMessageStream 方法，获取事件流
         const stream = geminiClient.sendMessageStream(queryToSend, abortSignal);
+        // 3. 【核心】将事件流送入 processGeminiStreamEvents 进行处理
         const processingStatus = await processGeminiStreamEvents(
           stream,
           userMessageTimestamp,
@@ -530,12 +583,14 @@ export const useGeminiStream = (
         if (processingStatus === StreamProcessingStatus.UserCancelled) {
           return;
         }
-
+        
+        // 当流处理完毕，将最后的待定消息项固化到历史记录中
         if (pendingHistoryItemRef.current) {
           addItem(pendingHistoryItemRef.current, userMessageTimestamp);
           setPendingHistoryItem(null);
         }
       } catch (error: unknown) {
+        // ... 错误处理 ...
         if (error instanceof UnauthorizedError) {
           onAuthError();
         } else if (!isNodeError(error) || error.name !== 'AbortError') {
@@ -571,18 +626,18 @@ export const useGeminiStream = (
   );
 
   /**
-   * Automatically submits responses for completed tool calls.
-   * This effect runs when `toolCalls` or `isResponding` changes.
-   * It ensures that tool responses are sent back to Gemini only when
-   * all processing for a given set of tools is finished and Gemini
-   * is not already generating a response.
+   * 【核心】这是一个非常重要的 `useEffect`，它负责**自动将会话延续下去**。
+   * 它监听 `toolCalls` 和 `isResponding` 状态的变化。
+   * 主要职责是：当所有工具都执行完毕后，收集它们的结果，并自动调用 `submitQuery` 将结果发回给 Gemini。
    */
   useEffect(() => {
     const run = async () => {
+      // 如果正在响应中，则不执行任何操作，等待当前响应完成
       if (isResponding) {
         return;
       }
-
+      
+      // 1. 筛选出所有已经执行完毕（成功、失败、取消）但其结果尚未提交给 Gemini 的工具调用
       const completedAndReadyToSubmitTools = toolCalls.filter(
         (
           tc: TrackedToolCall,
@@ -605,7 +660,7 @@ export const useGeminiStream = (
         },
       );
 
-      // Finalize any client-initiated tools as soon as they are done.
+      // 对于客户端主动发起的工具调用（如/memory add），完成后直接标记为已提交，无需发回给Gemini
       const clientTools = completedAndReadyToSubmitTools.filter(
         (t) => t.request.isClientInitiated,
       );
@@ -613,7 +668,7 @@ export const useGeminiStream = (
         markToolsAsSubmitted(clientTools.map((t) => t.request.callId));
       }
 
-      // Identify new, successful save_memory calls that we haven't processed yet.
+      // 检查是否有新的 save_memory 工具成功执行，如果有，则刷新内存
       const newSuccessfulMemorySaves = completedAndReadyToSubmitTools.filter(
         (t) =>
           t.request.name === 'save_memory' &&
@@ -622,15 +677,15 @@ export const useGeminiStream = (
       );
 
       if (newSuccessfulMemorySaves.length > 0) {
-        // Perform the refresh only if there are new ones.
+        // 异步执行内存刷新
         void performMemoryRefresh();
-        // Mark them as processed so we don't do this again on the next render.
+        // 标记为已处理，防止重复刷新
         newSuccessfulMemorySaves.forEach((t) =>
           processedMemoryToolsRef.current.add(t.request.callId),
         );
       }
 
-      // Only proceed with submitting to Gemini if ALL tools are complete.
+      // 2. 【关键检查】只有当所有正在处理的工具都执行完毕时，才继续
       const allToolsAreComplete =
         toolCalls.length > 0 &&
         toolCalls.length === completedAndReadyToSubmitTools.length;
@@ -638,7 +693,8 @@ export const useGeminiStream = (
       if (!allToolsAreComplete) {
         return;
       }
-
+      
+      // 筛选出由 Gemini 模型发起的工具调用
       const geminiTools = completedAndReadyToSubmitTools.filter(
         (t) => !t.request.isClientInitiated,
       );
@@ -647,15 +703,14 @@ export const useGeminiStream = (
         return;
       }
 
-      // If all the tools were cancelled, don't submit a response to Gemini.
+      // 如果所有工具都被用户取消了，则特殊处理：将取消结果添加到历史，但不发回给 Gemini
       const allToolsCancelled = geminiTools.every(
         (tc) => tc.status === 'cancelled',
       );
 
       if (allToolsCancelled) {
         if (geminiClient) {
-          // We need to manually add the function responses to the history
-          // so the model knows the tools were cancelled.
+          // 手动将 function response 添加到核心历史记录中
           const responsesToAdd = geminiTools.flatMap(
             (toolCall) => toolCall.response.responseParts,
           );
@@ -681,7 +736,8 @@ export const useGeminiStream = (
         markToolsAsSubmitted(callIdsToMarkAsSubmitted);
         return;
       }
-
+      
+      // 3. 【核心操作】收集所有工具的响应，合并它们，并再次调用 `submitQuery`
       const responsesToSend: PartListUnion[] = geminiTools.map(
         (toolCall) => toolCall.response.responseParts,
       );
@@ -690,6 +746,7 @@ export const useGeminiStream = (
       );
 
       markToolsAsSubmitted(callIdsToMarkAsSubmitted);
+      // 以"连续对话"模式提交，这会跳过一些用户输入处理步骤，直接将工具结果发送给模型
       submitQuery(mergePartListUnions(responsesToSend), {
         isContinuation: true,
       });
@@ -704,12 +761,14 @@ export const useGeminiStream = (
     geminiClient,
     performMemoryRefresh,
   ]);
-
+  
+  // 组合所有待定项（文本、工具组），用于UI渲染
   const pendingHistoryItems = [
     pendingHistoryItemRef.current,
     pendingToolCallGroupDisplay,
   ].filter((i) => i !== undefined && i !== null);
 
+  // 另一个 useEffect，用于在需要时自动保存可恢复的工具调用快照
   useEffect(() => {
     const saveRestorableToolCalls = async () => {
       if (!config.getCheckpointingEnabled()) {

@@ -4,59 +4,60 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import { parse } from 'shell-quote';
-import { MCPServerConfig } from '../config/config.js';
-import { DiscoveredMCPTool } from './mcp-tool.js';
 import {
   CallableTool,
   FunctionDeclaration,
   mcpToTool,
   Schema,
 } from '@google/genai';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { parse } from 'shell-quote';
+import { MCPServerConfig } from '../config/config.js';
+import { DiscoveredMCPTool } from './mcp-tool.js';
 import { ToolRegistry } from './tool-registry.js';
 
+// MCP 默认超时时间，10分钟。
 export const MCP_DEFAULT_TIMEOUT_MSEC = 10 * 60 * 1000; // default to 10 minutes
 
 /**
- * Enum representing the connection status of an MCP server
+ * MCP 服务器的连接状态枚举。
  */
 export enum MCPServerStatus {
-  /** Server is disconnected or experiencing errors */
+  /** 服务器已断开或遇到错误 */
   DISCONNECTED = 'disconnected',
-  /** Server is in the process of connecting */
+  /** 服务器正在连接中 */
   CONNECTING = 'connecting',
-  /** Server is connected and ready to use */
+  /** 服务器已连接并准备就绪 */
   CONNECTED = 'connected',
 }
 
 /**
- * Enum representing the overall MCP discovery state
+ * MCP 整体发现过程的状态枚举。
  */
 export enum MCPDiscoveryState {
-  /** Discovery has not started yet */
+  /** 发现尚未开始 */
   NOT_STARTED = 'not_started',
-  /** Discovery is currently in progress */
+  /** 发现正在进行中 */
   IN_PROGRESS = 'in_progress',
-  /** Discovery has completed (with or without errors) */
+  /** 发现已完成（无论是否成功） */
   COMPLETED = 'completed',
 }
 
 /**
- * Map to track the status of each MCP server within the core package
+ * 在 core 包内部用于跟踪每个 MCP 服务器状态的 Map。
  */
 const mcpServerStatusesInternal: Map<string, MCPServerStatus> = new Map();
 
 /**
- * Track the overall MCP discovery state
+ * 跟踪整体的 MCP 发现状态。
  */
 let mcpDiscoveryState: MCPDiscoveryState = MCPDiscoveryState.NOT_STARTED;
 
 /**
- * Event listeners for MCP server status changes
+ * MCP 服务器状态变更事件的监听器类型。
  */
 type StatusChangeListener = (
   serverName: string,
@@ -65,7 +66,7 @@ type StatusChangeListener = (
 const statusChangeListeners: StatusChangeListener[] = [];
 
 /**
- * Add a listener for MCP server status changes
+ * 添加一个 MCP 服务器状态变更的监听器。
  */
 export function addMCPStatusChangeListener(
   listener: StatusChangeListener,
@@ -74,7 +75,7 @@ export function addMCPStatusChangeListener(
 }
 
 /**
- * Remove a listener for MCP server status changes
+ * 移除一个 MCP 服务器状态变更的监听器。
  */
 export function removeMCPStatusChangeListener(
   listener: StatusChangeListener,
@@ -86,21 +87,21 @@ export function removeMCPStatusChangeListener(
 }
 
 /**
- * Update the status of an MCP server
+ * 更新一个 MCP 服务器的状态并通知所有监听器。
  */
 function updateMCPServerStatus(
   serverName: string,
   status: MCPServerStatus,
 ): void {
   mcpServerStatusesInternal.set(serverName, status);
-  // Notify all listeners
+  // 通知所有监听器
   for (const listener of statusChangeListeners) {
     listener(serverName, status);
   }
 }
 
 /**
- * Get the current status of an MCP server
+ * 获取一个 MCP 服务器的当前状态。
  */
 export function getMCPServerStatus(serverName: string): MCPServerStatus {
   return (
@@ -109,25 +110,32 @@ export function getMCPServerStatus(serverName: string): MCPServerStatus {
 }
 
 /**
- * Get all MCP server statuses
+ * 获取所有 MCP 服务器的状态。
  */
 export function getAllMCPServerStatuses(): Map<string, MCPServerStatus> {
   return new Map(mcpServerStatusesInternal);
 }
 
 /**
- * Get the current MCP discovery state
+ * 获取当前的 MCP 发现状态。
  */
 export function getMCPDiscoveryState(): MCPDiscoveryState {
   return mcpDiscoveryState;
 }
 
+/**
+ * 发现所有配置的 MCP 工具。
+ * 这是连接和发现过程的入口点。
+ * @param mcpServers - 从配置中读取的 MCP 服务器记录。
+ * @param mcpServerCommand - （可选）通过命令行启动的 MCP 服务器命令。
+ * @param toolRegistry - 要将发现的工具注册到的工具注册表。
+ */
 export async function discoverMcpTools(
   mcpServers: Record<string, MCPServerConfig>,
   mcpServerCommand: string | undefined,
   toolRegistry: ToolRegistry,
 ): Promise<void> {
-  // Set discovery state to in progress
+  // 将发现状态设置为进行中
   mcpDiscoveryState = MCPDiscoveryState.IN_PROGRESS;
 
   try {
@@ -135,9 +143,9 @@ export async function discoverMcpTools(
       const cmd = mcpServerCommand;
       const args = parse(cmd, process.env) as string[];
       if (args.some((arg) => typeof arg !== 'string')) {
-        throw new Error('failed to parse mcpServerCommand: ' + cmd);
+        throw new Error('解析 mcpServerCommand 失败: ' + cmd);
       }
-      // use generic server name 'mcp'
+      // 使用通用服务器名称 'mcp'
       mcpServers['mcp'] = {
         command: args[0],
         args: args.slice(1),
@@ -150,31 +158,41 @@ export async function discoverMcpTools(
     );
     await Promise.all(discoveryPromises);
 
-    // Mark discovery as completed
+    // 标记发现过程已完成
     mcpDiscoveryState = MCPDiscoveryState.COMPLETED;
   } catch (error) {
-    // Still mark as completed even with errors
+    // 即使出错，也标记为已完成
     mcpDiscoveryState = MCPDiscoveryState.COMPLETED;
     throw error;
   }
 }
 
+/**
+ * 连接到单个 MCP 服务器并发现其上的工具。
+ * @param mcpServerName - MCP 服务器的名称。
+ * @param mcpServerConfig - MCP 服务器的配置。
+ * @param toolRegistry - 工具注册表。
+ */
 async function connectAndDiscover(
   mcpServerName: string,
   mcpServerConfig: MCPServerConfig,
   toolRegistry: ToolRegistry,
 ): Promise<void> {
-  // Initialize the server status as connecting
+  // 初始化服务器状态为连接中
   updateMCPServerStatus(mcpServerName, MCPServerStatus.CONNECTING);
 
   let transport;
+  // 根据配置选择不同的传输方式
   if (mcpServerConfig.httpUrl) {
+    // 使用 HTTP 流式传输
     transport = new StreamableHTTPClientTransport(
       new URL(mcpServerConfig.httpUrl),
     );
   } else if (mcpServerConfig.url) {
+    // 使用服务器发送事件 (SSE) 传输
     transport = new SSEClientTransport(new URL(mcpServerConfig.url));
   } else if (mcpServerConfig.command) {
+    // 使用标准输入输出 (stdio) 传输，通过子进程启动服务器
     transport = new StdioClientTransport({
       command: mcpServerConfig.command,
       args: mcpServerConfig.args || [],
@@ -187,9 +205,9 @@ async function connectAndDiscover(
     });
   } else {
     console.error(
-      `MCP server '${mcpServerName}' has invalid configuration: missing httpUrl (for Streamable HTTP), url (for SSE), and command (for stdio). Skipping.`,
+      `MCP 服务器 '${mcpServerName}' 配置无效：缺少 httpUrl (用于 Streamable HTTP)、url (用于 SSE) 或 command (用于 stdio)。正在跳过。`,
     );
-    // Update status to disconnected
+    // 更新状态为已断开
     updateMCPServerStatus(mcpServerName, MCPServerStatus.DISCONNECTED);
     return;
   }
@@ -199,8 +217,8 @@ async function connectAndDiscover(
     version: '0.0.1',
   });
 
-  // patch Client.callTool to use request timeout as genai McpCallTool.callTool does not do it
-  // TODO: remove this hack once GenAI SDK does callTool with request options
+  // 修补 Client.callTool 以使用请求超时，因为 genai McpCallTool.callTool 没有这样做
+  // TODO: 在 GenAI SDK 支持带请求选项的 callTool 后移除此 hack
   if ('callTool' in mcpClient) {
     const origCallTool = mcpClient.callTool.bind(mcpClient);
     mcpClient.callTool = function (params, resultSchema, options) {
@@ -215,41 +233,41 @@ async function connectAndDiscover(
     await mcpClient.connect(transport, {
       timeout: mcpServerConfig.timeout ?? MCP_DEFAULT_TIMEOUT_MSEC,
     });
-    // Connection successful
+    // 连接成功
     updateMCPServerStatus(mcpServerName, MCPServerStatus.CONNECTED);
   } catch (error) {
-    // Create a safe config object that excludes sensitive information
+    // 创建一个不包含敏感信息的安全配置对象
     const safeConfig = {
       command: mcpServerConfig.command,
       url: mcpServerConfig.url,
       cwd: mcpServerConfig.cwd,
       timeout: mcpServerConfig.timeout,
       trust: mcpServerConfig.trust,
-      // Exclude args and env which may contain sensitive data
+      // 排除可能包含敏感数据的 args 和 env
     };
 
     let errorString =
-      `failed to start or connect to MCP server '${mcpServerName}' ` +
+      `启动或连接到 MCP 服务器 '${mcpServerName}' 失败 ` +
       `${JSON.stringify(safeConfig)}; \n${error}`;
     if (process.env.SANDBOX) {
-      errorString += `\nMake sure it is available in the sandbox`;
+      errorString += `\n请确保它在沙箱中可用`;
     }
     console.error(errorString);
-    // Update status to disconnected
+    // 更新状态为已断开
     updateMCPServerStatus(mcpServerName, MCPServerStatus.DISCONNECTED);
     return;
   }
 
   mcpClient.onerror = (error) => {
-    console.error(`MCP ERROR (${mcpServerName}):`, error.toString());
-    // Update status to disconnected on error
+    console.error(`MCP 错误 (${mcpServerName}):`, error.toString());
+    // 发生错误时更新状态为已断开
     updateMCPServerStatus(mcpServerName, MCPServerStatus.DISCONNECTED);
   };
 
   if (transport instanceof StdioClientTransport && transport.stderr) {
     transport.stderr.on('data', (data) => {
       const stderrStr = data.toString();
-      // Filter out verbose INFO logs from some MCP servers
+      // 过滤掉一些 MCP 服务器的冗长 INFO 日志
       if (!stderrStr.includes('] INFO')) {
         console.debug(`MCP STDERR (${mcpServerName}):`, stderrStr);
       }
@@ -257,7 +275,9 @@ async function connectAndDiscover(
   }
 
   try {
+    // 将 MCP 客户端转换为 GenAI SDK 可识别的 CallableTool
     const mcpCallableTool: CallableTool = mcpToTool(mcpClient);
+    // 从 MCP 服务器获取工具列表
     const discoveredToolFunctions = await mcpCallableTool.tool();
 
     if (
@@ -265,7 +285,7 @@ async function connectAndDiscover(
       !Array.isArray(discoveredToolFunctions.functionDeclarations)
     ) {
       console.error(
-        `MCP server '${mcpServerName}' did not return valid tool function declarations. Skipping.`,
+        `MCP 服务器 '${mcpServerName}' 未返回有效的工具函数声明。正在跳过。`,
       );
       if (
         transport instanceof StdioClientTransport ||
@@ -274,52 +294,56 @@ async function connectAndDiscover(
       ) {
         await transport.close();
       }
-      // Update status to disconnected
+      // 更新状态为已断开
       updateMCPServerStatus(mcpServerName, MCPServerStatus.DISCONNECTED);
       return;
     }
 
+    // 遍历发现的每个函数声明
     for (const funcDecl of discoveredToolFunctions.functionDeclarations) {
       if (!funcDecl.name) {
         console.warn(
-          `Discovered a function declaration without a name from MCP server '${mcpServerName}'. Skipping.`,
+          `从 MCP 服务器 '${mcpServerName}' 发现一个没有名称的函数声明。正在跳过。`,
         );
         continue;
       }
 
       let toolNameForModel = funcDecl.name;
 
-      // Replace invalid characters (based on 400 error message from Gemini API) with underscores
+      // 将无效字符（基于 Gemini API 的 400 错误信息）替换为下划线
       toolNameForModel = toolNameForModel.replace(/[^a-zA-Z0-9_.-]/g, '_');
 
+      // 如果工具名已存在，则添加服务器名前缀以避免冲突
       const existingTool = toolRegistry.getTool(toolNameForModel);
       if (existingTool) {
         toolNameForModel = mcpServerName + '__' + toolNameForModel;
       }
 
-      // If longer than 63 characters, replace middle with '___'
-      // (Gemini API says max length 64, but actual limit seems to be 63)
+      // 如果长度超过 63 个字符，用 '___' 替换中间部分
+      // (Gemini API 声称最大长度为 64，但实际限制似乎是 63)
       if (toolNameForModel.length > 63) {
         toolNameForModel =
           toolNameForModel.slice(0, 28) + '___' + toolNameForModel.slice(-32);
       }
 
+      // 清理参数 schema
       sanatizeParameters(funcDecl.parameters);
 
-      // Ensure parameters is a valid JSON schema object, default to empty if not.
+      // 确保 parameters 是一个有效的 JSON schema 对象，如果不是则默认为空。
       const parameterSchema: Record<string, unknown> =
         funcDecl.parameters && typeof funcDecl.parameters === 'object'
           ? { ...(funcDecl.parameters as FunctionDeclaration) }
           : { type: 'object', properties: {} };
 
+      // 将发现的 MCP 工具注册到工具注册表
       toolRegistry.registerTool(
         new DiscoveredMCPTool(
           mcpCallableTool,
           mcpServerName,
-          toolNameForModel,
+          toolNameForModel, // 这是给模型看的、经过处理的名称
           funcDecl.description ?? '',
           parameterSchema,
-          funcDecl.name,
+          funcDecl.name, // 这是在 MCP 服务器上的原始名称
           mcpServerConfig.timeout ?? MCP_DEFAULT_TIMEOUT_MSEC,
           mcpServerConfig.trust,
         ),
@@ -327,9 +351,9 @@ async function connectAndDiscover(
     }
   } catch (error) {
     console.error(
-      `Failed to list or register tools for MCP server '${mcpServerName}': ${error}`,
+      `为 MCP 服务器 '${mcpServerName}' 列出或注册工具失败: ${error}`,
     );
-    // Ensure transport is cleaned up on error too
+    // 同样在出错时确保清理传输层
     if (
       transport instanceof StdioClientTransport ||
       transport instanceof SSEClientTransport ||
@@ -337,18 +361,16 @@ async function connectAndDiscover(
     ) {
       await transport.close();
     }
-    // Update status to disconnected
+    // 更新状态为已断开
     updateMCPServerStatus(mcpServerName, MCPServerStatus.DISCONNECTED);
   }
 
-  // If no tools were registered from this MCP server, the following 'if' block
-  // will close the connection. This is done to conserve resources and prevent
-  // an orphaned connection to a server that isn't providing any usable
-  // functionality. Connections to servers that did provide tools are kept
-  // open, as those tools will require the connection to function.
+  // 如果没有从此 MCP 服务器注册任何工具，以下 'if' 块将关闭连接。
+  // 这样做是为了节省资源，并防止与不提供任何可用功能的服务器保持孤立连接。
+  // 与提供了工具的服务器的连接将保持打开，因为这些工具需要连接才能工作。
   if (toolRegistry.getToolsByServer(mcpServerName).length === 0) {
     console.log(
-      `No tools registered from MCP server '${mcpServerName}'. Closing connection.`,
+      `没有从 MCP 服务器 '${mcpServerName}' 注册任何工具。正在关闭连接。`,
     );
     if (
       transport instanceof StdioClientTransport ||
@@ -356,18 +378,22 @@ async function connectAndDiscover(
       transport instanceof StreamableHTTPClientTransport
     ) {
       await transport.close();
-      // Update status to disconnected
+      // 更新状态为已断开
       updateMCPServerStatus(mcpServerName, MCPServerStatus.DISCONNECTED);
     }
   }
 }
 
+/**
+ * 清理参数 schema 以兼容 Vertex AI。
+ * @param schema - 要清理的 schema。
+ */
 export function sanatizeParameters(schema?: Schema) {
   if (!schema) {
     return;
   }
   if (schema.anyOf) {
-    // Vertex AI gets confused if both anyOf and default are set.
+    // 如果同时设置了 anyOf 和 default，Vertex AI 会感到困惑。
     schema.default = undefined;
     for (const item of schema.anyOf) {
       sanatizeParameters(item);

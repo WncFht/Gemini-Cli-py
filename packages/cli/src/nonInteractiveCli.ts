@@ -7,16 +7,16 @@
 import {
   Config,
   ToolCallRequestInfo,
-  executeToolCall,
   ToolRegistry,
-  shutdownTelemetry,
+  executeToolCall,
   isTelemetrySdkInitialized,
+  shutdownTelemetry,
 } from '@google/gemini-cli-core';
 import {
   Content,
-  Part,
   FunctionCall,
   GenerateContentResponse,
+  Part,
 } from '@google/genai';
 
 import { parseAndFormatApiError } from './ui/utils/errorParsing.js';
@@ -101,7 +101,7 @@ export async function runNonInteractive(
             args: (fc.args ?? {}) as Record<string, unknown>,
             isClientInitiated: false,
           };
-
+          // 调用 nonInteractiveToolExecutor 执行工具调用
           const toolResponse = await executeToolCall(
             config,
             requestInfo,
