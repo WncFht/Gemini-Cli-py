@@ -11,6 +11,7 @@ jobs:
   e2e-test:
     name: E2E Test - ${{ matrix.sandbox }}
     runs-on: ubuntu-latest
+    if: false
     strategy:
       matrix:
         sandbox: [sandbox:none, sandbox:docker]

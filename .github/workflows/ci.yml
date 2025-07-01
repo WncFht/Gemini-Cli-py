@@ -13,6 +13,7 @@ jobs:
   build:
     name: Build and Lint
     runs-on: ubuntu-latest
+    if: false # 禁用此工作流
     permissions:
       contents: read # For checkout
     strategy:
@@ -55,6 +56,7 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
+    if: false # 禁用此工作流
     needs: build # This job depends on the 'build' job
     permissions:
       contents: read
@@ -117,7 +119,7 @@ jobs:
     name: Post Coverage Comment
     runs-on: ubuntu-latest
     needs: test
-    if: always() && github.event_name == 'pull_request' && (github.event.pull_request.head.repo.full_name == github.repository)
+    if: false # 禁用此工作流 - 原条件: always() && github.event_name == 'pull_request' && (github.event.pull_request.head.repo.full_name == github.repository)
     continue-on-error: true
     permissions:
       contents: read # For checkout

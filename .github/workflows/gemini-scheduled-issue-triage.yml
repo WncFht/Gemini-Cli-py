@@ -9,6 +9,7 @@ jobs:
   triage-issues:
     timeout-minutes: 10
     runs-on: ubuntu-latest
+    if: false # 禁用此工作流
     permissions:
       contents: read
       id-token: write
