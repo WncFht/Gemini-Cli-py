@@ -10,9 +10,9 @@ from typing import Any
 
 from google import generativeai as genai
 
+from ...utils.model_check import get_effective_model
 from ..config import DEFAULT_GEMINI_MODEL
 from ..types import GeminiError
-from ..utils.model_check import get_effective_model
 from .base import AuthType, ContentGenerator, ContentGeneratorConfig
 
 
