@@ -1,52 +1,88 @@
 """
-错误处理工具函数 - 从 errors.ts 和 errorReporting.ts 迁移
+This file is refactored from packages/core_ts/src/utils/errors.ts
+and packages/core_ts/src/utils/errorReporting.ts.
 """
 
+import json
 import logging
+import tempfile
+from datetime import datetime
+from pathlib import Path
 from typing import Any
+
+import httpx
 
 logger = logging.getLogger(__name__)
 
 
-def get_error_message(error: Exception | Any) -> str:
-    """
-    从错误对象中提取错误消息
-
-    Args:
-        error: 错误对象
-
-    Returns:
-        错误消息字符串
-
-    """
+def get_error_message(error: Any) -> str:
+    """Safely gets an error message from an exception."""
     if isinstance(error, Exception):
         return str(error)
-    return str(error)
+    try:
+        return str(error)
+    except Exception:
+        return "Failed to get error details"
+
+
+class ForbiddenError(Exception):
+    pass
+
+
+class UnauthorizedError(Exception):
+    pass
+
+
+class BadRequestError(Exception):
+    pass
+
+
+def to_friendly_error(error: Any) -> Exception:
+    """Converts HTTP errors to more specific, friendly exception types."""
+    if isinstance(error, httpx.HTTPStatusError):
+        response = error.response
+        if response.status_code == 400:
+            return BadRequestError(response.text)
+        if response.status_code == 401:
+            return UnauthorizedError(response.text)
+        if response.status_code == 403:
+            return ForbiddenError(response.text)
+    if isinstance(error, Exception):
+        return error
+    return Exception(get_error_message(error))
 
 
 async def report_error(
-    error: Exception | Any,
-    context: str,
-    additional_data: Any = None,
-    error_type: str = "unknown",
-) -> None:
-    """
-    报告错误到日志系统
+    error: Any,
+    base_message: str,
+    context: Any | None = None,
+    error_type: str = "general",
+):
+    """Generates an error report and writes it to a temporary file."""
+    timestamp = datetime.now().isoformat().replace(":", "-").replace(".", "-")
+    report_file_name = f"gemini-client-error-{error_type}-{timestamp}.json"
+    report_path = Path(tempfile.gettempdir()) / report_file_name
 
-    Args:
-        error: 错误对象
-        context: 错误发生的上下文描述
-        additional_data: 额外的调试数据
-        error_type: 错误类型标识
+    error_to_report = {}
+    if isinstance(error, Exception):
+        error_to_report["message"] = str(error)
+        error_to_report["stack"] = "".join(
+            __import__("traceback").format_exception(
+                type(error), error, error.__traceback__
+            )
+        )
+    else:
+        error_to_report["message"] = get_error_message(error)
 
-    """
-    error_message = get_error_message(error)
+    report_content = {"error": error_to_report}
+    if context:
+        report_content["context"] = context
 
-    logger.error(
-        f"{context}: {error_message}",
-        extra={
-            "error_type": error_type,
-            "additional_data": additional_data,
-        },
-        exc_info=isinstance(error, Exception),
-    )
+    try:
+        report_str = json.dumps(report_content, indent=2, default=str)
+        with report_path.open("w", encoding="utf-8") as f:
+            f.write(report_str)
+        logger.error(f"{base_message} Full report available at: {report_path}")
+    except Exception as e:
+        logger.error(f"{base_message} Failed to write error report: {e}")
+        logger.error(f"Original error: {error_to_report['message']}")

@@ -9,7 +9,7 @@ from typing import Literal, Union
 
 from pydantic import BaseModel, Field
 
-from ..api.events import ToolCallRequestInfo, ToolCallResponseInfo
+from ...api.events import ToolCallRequestInfo, ToolCallResponseInfo
 from ..tools.base import Tool, ToolConfirmationOutcome
 from ..tools.common import ToolCallConfirmationDetails
 

@@ -17,7 +17,6 @@ from ..core.types import (
     Content,
     GeminiError,
     GeminiEventType,
-    ModelError,
     Part,
 )
 from ..graphs.conversation import create_conversation_graph
@@ -205,26 +204,17 @@ class GeminiClient:
         turns: int = None,
     ) -> AsyncGenerator[ServerGeminiStreamEvent, None]:
         """
-        发送流式消息。这是与模型进行交互的主要入口点
-        它管理着多回合对话的自动进行
-
-        Args:
-            request: 要发送给模型的请求内容
-            signal: 用于中止操作的信号
-            turns: 剩余的回合数，用于防止无限循环
-
-        Yields:
-            ServerGeminiStreamEvent: 交互过程中的各种事件
-
+        Sends a streaming message. This is the main entry point for interaction
+        with the model. It manages the automatic multi-turn conversation flow.
         """
         if turns is None:
             turns = self.MAX_TURNS
 
         if not turns:
-            # 防止无限递归
+            # Prevent infinite recursion
             return
 
-        # 尝试压缩聊天历史
+        # Try to compress chat history
         try:
             compressed = await self._try_compress_chat()
             if compressed:
@@ -237,15 +227,17 @@ class GeminiClient:
             # Decide if we should yield an error event and stop
             # For now, we log and continue
 
-        # 更新会话状态
+        # Update conversation state
         self._conversation_state.current_user_input = request
 
-        # 运行会话图
+        # Run the conversation graph
         try:
             # The graph's astream now yields events directly.
             async for event in self.conversation_graph.astream(
                 self._conversation_state.model_dump()
             ):
+                # The graph now internally handles the continuation logic,
+                # so we just yield the events.
                 if event.type == GeminiEventType.TOOL_CALL_CONFIRMATION:
                     # Graph is about to interrupt. Store the current tool state.
                     self._current_tool_execution_state = (
@@ -328,6 +320,7 @@ class GeminiClient:
         ):
             yield event
 
+    @retry_with_backoff()
     async def generate_json(
         self,
         contents: list[Content],
@@ -337,95 +330,57 @@ class GeminiClient:
         config: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """
-        请求模型根据提供的 schema 生成一个 JSON 对象
-
-        Args:
-            contents: 发送给模型的内容
-            schema: 期望的 JSON 对象的 schema
-            abort_signal: 用于中止操作的信号
-            model: 使用的模型，默认为配置的模型
-            config: 额外的生成配置
-
-        Returns:
-            生成的 JSON 对象
-
+        Requests the model to generate a JSON object based on the provided schema.
         """
-        try:
-            user_memory = self.config.get_user_memory()
-            system_instruction = get_core_system_prompt(user_memory)
+        user_memory = self.config.get_user_memory()
+        system_instruction = get_core_system_prompt(user_memory)
 
-            request_config = {
-                **self.generate_content_config,
-                **(config or {}),
-                "system_instruction": system_instruction,
-                "response_schema": schema,
-                "response_mime_type": "application/json",
-            }
+        request_config = {
+            **self.generate_content_config,
+            **(config or {}),
+            "system_instruction": system_instruction,
+            "response_schema": schema,
+            "response_mime_type": "application/json",
+        }
 
-            async def api_call():
-                return await self.get_content_generator().generate_content(
-                    model=model or self.model,
-                    config=request_config,
-                    contents=contents,
-                )
+        result = await self.get_content_generator().generate_content(
+            model=model or self.model,
+            config=request_config,
+            contents=contents,
+        )
 
-            result = await retry_with_backoff(
-                api_call,
-                on_persistent_429=self._handle_flash_fallback,
-                auth_type=self.config.get_content_generator_config().get(
-                    "auth_type"
-                ),
+        response_text = self._get_response_text(result)
+        if not response_text:
+            error = GeminiError(
+                "API in generateJson returned an empty response.",
+                "empty_response",
             )
+            await report_error(
+                error,
+                "Error in generateJson: API returned empty response.",
+                contents,
+                "generateJson-empty-response",
+            )
+            raise error
 
-            response_text = self._get_response_text(result)
-            if not response_text:
-                error = GeminiError(
-                    "API 在 generateJson 中返回了空响应。",
-                    "empty_response",
-                )
-                await report_error(
-                    error,
-                    "generateJson 中的错误：API 返回了空响应。",
-                    contents,
-                    "generateJson-empty-response",
-                )
-                raise error
-
-            try:
-                return json.loads(response_text)
-            except json.JSONDecodeError as e:
-                await report_error(
-                    e,
-                    "从 generateJson 解析 JSON 响应失败。",
-                    {
-                        "responseTextFailedToParse": response_text,
-                        "originalRequestContents": contents,
-                    },
-                    "generateJson-parse",
-                )
-                raise GeminiError(
-                    f"解析 API 响应为 JSON 失败：{get_error_message(e)}",
-                    "json_parse_error",
-                )
-
-        except Exception as e:
-            if abort_signal and abort_signal.is_set():
-                raise
-
-            if isinstance(e, GeminiError):
-                raise
-
+        try:
+            return json.loads(response_text)
+        except json.JSONDecodeError as e:
             await report_error(
                 e,
-                "通过 API 生成 JSON 内容时出错。",
-                contents,
-                "generateJson-api",
+                "Failed to parse JSON response from generateJson.",
+                {
+                    "responseTextFailedToParse": response_text,
+                    "originalRequestContents": contents,
+                },
+                "generateJson-parse",
             )
             raise GeminiError(
-                f"生成 JSON 内容失败：{get_error_message(e)}",
-                "generation_error",
-            )
+                f"Failed to parse API response as JSON: {get_error_message(e)}",
+                "json_parse_error",
+            ) from e
 
+    @retry_with_backoff()
     async def generate_content(
         self,
         contents: list[Content],
@@ -433,66 +388,21 @@ class GeminiClient:
         abort_signal: asyncio.Event | None = None,
     ) -> dict[str, Any]:
         """
-        一个通用的、非聊天模式的内容生成方法
-
-        Args:
-            contents: 发送给模型的内容
-            generation_config: 本次调用的生成配置
-            abort_signal: 用于中止操作的信号
-
-        Returns:
-            模型的响应
-
+        A general-purpose, non-chat content generation method.
         """
         model_to_use = self.model
-        config_to_use = {
-            **self.generate_content_config,
-            **generation_config,
+        config_to_use = {**self.generate_content_config, **generation_config}
+
+        user_memory = self.config.get_user_memory()
+        system_instruction = get_core_system_prompt(user_memory)
+        request_config = {
+            **config_to_use,
+            "system_instruction": system_instruction,
         }
 
-        try:
-            user_memory = self.config.get_user_memory()
-            system_instruction = get_core_system_prompt(user_memory)
-
-            request_config = {
-                **config_to_use,
-                "system_instruction": system_instruction,
-            }
-
-            async def api_call():
-                return await self.get_content_generator().generate_content(
-                    model=model_to_use,
-                    config=request_config,
-                    contents=contents,
-                )
-
-            result = await retry_with_backoff(
-                api_call,
-                on_persistent_429=self._handle_flash_fallback,
-                auth_type=self.config.get_content_generator_config().get(
-                    "auth_type"
-                ),
-            )
-
-            return result
-
-        except Exception as e:
-            if abort_signal and abort_signal.is_set():
-                raise
-
-            await report_error(
-                e,
-                f"使用模型 {model_to_use} 通过 API 生成内容时出错。",
-                {
-                    "requestContents": contents,
-                    "requestConfig": config_to_use,
-                },
-                "generateContent-api",
-            )
-            raise ModelError(
-                f"使用模型 {model_to_use} 生成内容失败：{get_error_message(e)}",
-                model_to_use,
-            )
+        return await self.get_content_generator().generate_content(
+            model=model_to_use, config=request_config, contents=contents
+        )
 
     async def generate_embedding(self, texts: list[str]) -> list[list[float]]:
         """
@@ -616,9 +526,28 @@ class GeminiClient:
     async def _handle_flash_fallback(
         self, auth_type: str | None = None
     ) -> str | None:
-        """处理 Flash 模型的降级"""
-        # TODO: 实现降级逻辑
-        return None
+        """Handles fallback to the Flash model for persistent 429 errors."""
+        # This logic is based on `handleFlashFallback` in the TypeScript version.
+        # It's simplified here to be part of the client, not a separate handler in config.
+        if (
+            auth_type != "oauth-personal"
+        ):  # Assuming AuthType.LOGIN_WITH_GOOGLE_PERSONAL
+            return None
+
+        current_model = self.model
+        fallback_model = "gemini-2.0-flash"  # Assuming a default fallback
+
+        if current_model == fallback_model:
+            return None
+
+        logger.warning(
+            f"Persistent 429 errors with {current_model}. "
+            f"Consider switching to a fallback like {fallback_model}."
+        )
+        # In a real CLI, we might prompt the user here. For now, we auto-switch.
+        # This is a deviation from the TS code that has a `flashFallbackHandler`.
+        self.model = fallback_model
+        return fallback_model
 
     def _get_response_text(self, response: dict[str, Any]) -> str | None:
         """从响应中提取文本"""

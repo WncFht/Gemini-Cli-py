@@ -13,15 +13,16 @@ from langgraph.graph.graph import CompiledGraph
 
 from ...tools.registry import ToolRegistry
 from ..core import Config, EventEmitter
-from ..graphs.states import ConversationState
-from ..graphs.tool_execution_graph import create_tool_execution_graph
-from ..nodes.chat_nodes import (
+from ..core.nodes.chat_nodes import (
     ChatNodeContext,
     call_model_node,
     check_continuation_edge,
+    check_continuation_node,
     check_tool_calls_edge,
     process_user_input_node,
 )
+from ..graphs.states import ConversationState
+from ..graphs.tool_execution_graph import create_tool_execution_graph
 
 logger = logging.getLogger(__name__)
 
@@ -110,12 +111,14 @@ def create_conversation_graph(
         execute_tools_node, context=context, tool_registry=tool_registry
     )
     compress_history = partial(compress_history_node, context=context)
+    check_continuation = partial(check_continuation_node, context=context)
 
     # 添加节点
     graph.add_node("process_input", process_input)
     graph.add_node("call_model", call_model)
     graph.add_node("execute_tools", execute_tools)
     graph.add_node("compress_history", compress_history)
+    graph.add_node("check_continuation", check_continuation)
 
     # 添加边
     graph.add_edge("process_input", "call_model")

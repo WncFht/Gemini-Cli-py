@@ -9,7 +9,7 @@ architecture, an object of this type will be passed between the nodes of the gra
 from google.generativeai.types import Content, GenerateContentResponse
 from pydantic import BaseModel, Field
 
-from core.api.events import ToolCallRequestInfo
+from ...api.events import ToolCallRequestInfo
 
 
 class ConversationState(BaseModel):

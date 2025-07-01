@@ -88,6 +88,9 @@ class EditTool(
         expected_replacements = params.expected_replacements
         current_content: str | None = None
         error: dict[str, str] | None = None
+        final_old_string = params.old_string
+        final_new_string = params.new_string
+        occurrences = 0
 
         if p.exists():
             current_content = p.read_text("utf-8").replace("\r\n", "\n")
@@ -102,19 +105,18 @@ class EditTool(
             if occurrences == 0:
                 error = {
                     "display": "Edit failed, string to replace not found.",
-                    "raw": "...",
+                    "raw": "Could not find the exact string to replace in the file.",
                 }
             elif occurrences != expected_replacements:
                 error = {
                     "display": f"Found {occurrences} occurrences, but expected {expected_replacements}.",
-                    "raw": "...",
+                    "raw": f"Expected {expected_replacements} replacements, but found {occurrences}.",
                 }
 
         else:
             if params.old_string != "":
                 error = {"display": "File not found.", "raw": "File not found"}
-            final_old_string = params.old_string
-            final_new_string = params.new_string
+            # For new files, old_string is empty, new_string is the content
             occurrences = 0
 
         is_new_file = not p.exists() and params.old_string == ""

@@ -3,6 +3,7 @@
 提供处理用户输入、调用模型、处理响应等核心节点
 """
 
+import json
 import logging
 import time
 from typing import Any
@@ -15,10 +16,10 @@ from ...core.types import (
     GeminiError,
     Part,
 )
-from ...graphs.states import ConversationState
 from ...telemetry.logger import log_api_error, log_api_request, log_api_response
 from ...utils.retry import retry_with_backoff
 from ..config import Config
+from ..graphs.states import ConversationState
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +70,16 @@ def is_valid_content(content: dict[str, Any]) -> bool:
             return False
 
     return True
+
+
+def is_function_response(content: dict[str, Any]) -> bool:
+    """Checks if the content is a function response."""
+    parts = content.get("parts", [])
+    return (
+        content.get("role") == "user"
+        and bool(parts)
+        and all("function_response" in part for part in parts)
+    )
 
 
 def validate_history(history: list[Content]) -> None:
@@ -381,6 +392,9 @@ async def call_model_node(
         state["pending_tool_calls"] = [tc.model_dump() for tc in tool_calls]
         state["usage_metadata"] = usage_metadata
 
+        # Reset user input for the next turn
+        state["current_user_input"] = None
+
         return state
 
     except Exception as e:
@@ -410,19 +424,66 @@ async def check_tool_calls_edge(state: ConversationState) -> str:
     return "check_continuation"
 
 
-async def check_continuation_edge(state: ConversationState) -> str:
+async def check_continuation_node(
+    state: ConversationState, context: ChatNodeContext
+) -> dict[str, Any]:
     """
-    检查是否继续对话的条件边
-
-    Args:
-        state: 当前会话状态
-
-    Returns:
-        下一个节点的名称
-
+    Checks if the conversation should continue automatically.
+    This logic is migrated from `nextSpeakerChecker.ts`.
     """
-    # TODO: 实现 check_next_speaker 逻辑
-    return "end"
+    history = state.get("history", [])
+    if not history:
+        return {"next_step": "end"}
+
+    last_message = history[-1]
+    if last_message.get("role") != "model":
+        # Check if the last message is a user turn with only function responses
+        if is_function_response(last_message):
+            return {"next_step": "continue"}
+        return {"next_step": "end"}
+
+    # Use LLM to check if it should continue
+    check_prompt = """Analyze *only* the content and structure of your immediately preceding response. Based *strictly* on that response, determine who should logically speak next: the 'user' or the 'model' (you).
+**Decision Rules (apply in order):**
+1.  **Model Continues:** If your last response explicitly states an immediate next action *you* intend to take, OR if the response seems clearly incomplete, then the **'model'** should speak next.
+2.  **Question to User:** If your last response ends with a direct question specifically addressed *to the user*, then the **'user'** should speak next.
+3.  **Waiting for User:** If your last response completed a thought or task *and* does not meet the criteria for Rule 1 or 2, it implies a pause expecting user input. In this case, the **'user'** should speak next.
+Respond *only* in JSON format: {"reasoning": "...", "next_speaker": "user" | "model"}
+"""
+
+    contents = history + [{"role": "user", "parts": [{"text": check_prompt}]}]
+
+    try:
+        response = await context.get_content_generator().generate_content(
+            model=context.config.get_model(),
+            config={},  # Simple config for this check
+            contents=contents,
+        )
+        response_text = (
+            response.get("candidates", [{}])[0]
+            .get("content", {})
+            .get("parts", [{}])[0]
+            .get("text", "")
+        )
+        parsed = json.loads(response_text)
+
+        if parsed.get("next_speaker") == "model":
+            return {
+                "next_step": "continue",
+                "current_user_input": [{"text": "Please continue."}],
+            }
+
+    except Exception as e:
+        logger.warning(f"Could not determine next speaker: {e}")
+
+    return {"next_step": "end"}
+
+
+def check_continuation_edge(state: ConversationState) -> str:
+    """
+    Conditional edge to determine if the conversation should continue.
+    """
+    return state.get("next_step", "end")
 
 
 def _get_request_text_from_contents(contents: list[Content]) -> str:

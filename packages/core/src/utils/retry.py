@@ -5,96 +5,108 @@
 
 import asyncio
 import logging
-from collections.abc import Callable
-from typing import TypeVar
+import random
+from collections.abc import Awaitable, Callable
+from functools import wraps
+from typing import Any, TypeVar
+
+from .errors import report_error, to_friendly_error
 
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
 
-async def retry_with_backoff(
-    func: Callable[[], T | asyncio.Future[T]],
-    max_retries: int = 3,
-    initial_delay: float = 1.0,
-    max_delay: float = 60.0,
-    exponential_base: float = 2.0,
-    should_retry: Callable[[Exception], bool] | None = None,
-    on_persistent_429: Callable[[str | None], asyncio.Future[str | None]]
-    | None = None,
+def default_should_retry(error: Exception) -> bool:
+    """Default predicate to check if a retry should be attempted."""
+    from .errors import BadRequestError, ForbiddenError, UnauthorizedError
+
+    # Do not retry on user errors or auth errors
+    if isinstance(error, (BadRequestError, UnauthorizedError, ForbiddenError)):
+        return False
+    # A simple check for common transient errors, can be made more robust
+    if "429" in str(error) or "50" in str(error):
+        return True
+    return False
+
+
+def retry_with_backoff(
+    max_attempts: int = 5,
+    initial_delay_ms: int = 5000,
+    max_delay_ms: int = 30000,
+    should_retry: Callable[[Exception], bool] = default_should_retry,
+    on_persistent_429: Callable[[str], Awaitable[str | None]] | None = None,
     auth_type: str | None = None,
-) -> T:
+) -> Callable[[Callable[..., Awaitable[T]]], Callable[..., Awaitable[T]]]:
     """
-    使用指数退避策略重试函数调用
-
-    Args:
-        func: 要重试的函数
-        max_retries: 最大重试次数
-        initial_delay: 初始延迟（秒）
-        max_delay: 最大延迟（秒）
-        exponential_base: 指数基数
-        should_retry: 判断是否应该重试的函数
-        on_persistent_429: 处理持续 429 错误的回调
-        auth_type: 认证类型
-
-    Returns:
-        函数执行结果
-
-    Raises:
-        最后一次重试的异常
-
+    A decorator to retry an async function with exponential backoff and jitter.
     """
-    delay = initial_delay
-    last_error = None
-    persistent_429_count = 0
 
-    for attempt in range(max_retries + 1):
-        try:
-            result = func()
-            if asyncio.iscoroutine(result):
-                return await result
-            return result
+    def decorator(
+        fn: Callable[..., Awaitable[T]],
+    ) -> Callable[..., Awaitable[T]]:
+        @wraps(fn)
+        async def wrapper(*args: Any, **kwargs: Any) -> T:
+            attempt = 0
+            current_delay = initial_delay_ms
+            consecutive_429_count = 0
+            last_error: Exception | None = None
 
-        except Exception as e:
-            last_error = e
+            while attempt < max_attempts:
+                attempt += 1
+                try:
+                    return await fn(*args, **kwargs)
+                except Exception as e:
+                    friendly_error = to_friendly_error(e)
+                    last_error = friendly_error
 
-            # 检查是否应该重试
-            if should_retry and not should_retry(e):
-                raise
+                    if "429" in str(friendly_error):
+                        consecutive_429_count += 1
+                    else:
+                        consecutive_429_count = 0
 
-            # 检查是否是 429 错误
-            error_message = str(e)
-            if "429" in error_message:
-                persistent_429_count += 1
+                    if (
+                        consecutive_429_count >= 2
+                        and on_persistent_429
+                        and auth_type
+                    ):
+                        try:
+                            fallback_model = await on_persistent_429(auth_type)
+                            if fallback_model:
+                                logger.info(
+                                    f"Switched to fallback model: {fallback_model}"
+                                )
+                                attempt = 0
+                                consecutive_429_count = 0
+                                current_delay = initial_delay_ms
+                                continue
+                        except Exception as fallback_error:
+                            logger.warning(
+                                f"Fallback handler failed: {fallback_error}"
+                            )
 
-                # 如果连续遇到多次 429 错误，尝试降级
-                if persistent_429_count >= 2 and on_persistent_429:
-                    fallback_model = await on_persistent_429(auth_type)
-                    if fallback_model:
-                        logger.info(f"Falling back to model: {fallback_model}")
-                        # 重置计数并继续
-                        persistent_429_count = 0
-                        continue
-            else:
-                persistent_429_count = 0
+                    if attempt >= max_attempts or not should_retry(
+                        friendly_error
+                    ):
+                        break
 
-            # 如果是最后一次尝试，直接抛出异常
-            if attempt == max_retries:
-                raise
+                    jitter = current_delay * 0.3 * (random.random() * 2 - 1)
+                    delay_with_jitter = max(0, current_delay + jitter)
 
-            # 计算延迟时间
-            delay = min(delay * exponential_base, max_delay)
+                    logger.warning(
+                        f"Attempt {attempt} failed for {fn.__name__}. Retrying in {delay_with_jitter / 1000:.2f}s...",
+                        exc_info=True,
+                    )
 
-            logger.warning(
-                f"Retry attempt {attempt + 1}/{max_retries} after {delay:.1f}s delay. "
-                f"Error: {error_message}"
+                    await asyncio.sleep(delay_with_jitter / 1000)
+                    current_delay = min(max_delay_ms, current_delay * 2)
+
+            await report_error(
+                last_error,
+                f"Function {fn.__name__} failed after {max_attempts} attempts.",
             )
+            raise last_error from None
 
-            # 等待后重试
-            await asyncio.sleep(delay)
+        return wrapper
 
-    # 如果所有重试都失败了
-    if last_error:
-        raise last_error
-
-    raise RuntimeError("Unexpected error in retry logic")
+    return decorator
