@@ -98,7 +98,6 @@ Conversation history:
 {history_text}"""
 
 
-
 def get_next_speaker_prompt(
     last_message: Content,
     conversation_context: str | None = None,
@@ -136,7 +135,6 @@ Respond in JSON format:
   "reasoning": "Your analysis of the situation",
   "next_speaker": "user" or "model"
 }}"""
-
 
 
 def get_error_handling_prompt(error: Exception, context: str) -> str:
@@ -198,7 +196,6 @@ Consider:
 3. Are there any prerequisites or dependencies?
 
 Explain your tool selection reasoning before making the calls."""
-
 
 
 # Helper functions

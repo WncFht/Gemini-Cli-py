@@ -314,7 +314,9 @@ class GeminiWebSocketServer:
         except asyncio.CancelledError:
             logger.info(f"Conversation cancelled for session {session_id}")
         except Exception as e:
-            logger.exception(f"Conversation error for session {session_id}: {e}")
+            logger.exception(
+                f"Conversation error for session {session_id}: {e}"
+            )
             await emitter.emit_error(e)
 
     async def _cleanup_session(self, session_id: str) -> None:
