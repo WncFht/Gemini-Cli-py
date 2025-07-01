@@ -187,6 +187,7 @@ async function connectAndDiscover(
     // 使用 HTTP 流式传输
     transport = new StreamableHTTPClientTransport(
       new URL(mcpServerConfig.httpUrl),
+      transportOptions,
     );
   } else if (mcpServerConfig.url) {
     // 使用服务器发送事件 (SSE) 传输
@@ -240,6 +241,7 @@ async function connectAndDiscover(
     const safeConfig = {
       command: mcpServerConfig.command,
       url: mcpServerConfig.url,
+      httpUrl: mcpServerConfig.httpUrl,
       cwd: mcpServerConfig.cwd,
       timeout: mcpServerConfig.timeout,
       trust: mcpServerConfig.trust,
@@ -396,15 +398,15 @@ export function sanatizeParameters(schema?: Schema) {
     // 如果同时设置了 anyOf 和 default，Vertex AI 会感到困惑。
     schema.default = undefined;
     for (const item of schema.anyOf) {
-      sanatizeParameters(item);
+      sanitizeParameters(item);
     }
   }
   if (schema.items) {
-    sanatizeParameters(schema.items);
+    sanitizeParameters(schema.items);
   }
   if (schema.properties) {
     for (const item of Object.values(schema.properties)) {
-      sanatizeParameters(item);
+      sanitizeParameters(item);
     }
   }
 }

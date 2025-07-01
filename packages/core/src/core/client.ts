@@ -28,7 +28,7 @@ import {
   AuthType,
   ContentGenerator,
   ContentGeneratorConfig,
-  createContentGenerator,
+  createContentGenerator
 } from './contentGenerator.js';
 import { GeminiChat } from './geminiChat.js';
 import { getCoreSystemPrompt } from './prompts.js';
@@ -233,8 +233,8 @@ export class GeminiClient {
         role: 'model',
         parts: [{ text: '好的，感谢提供上下文！' }],
       },
+      ...(extraHistory ?? []),
     ];
-    const history = initialHistory.concat(extraHistory ?? []);
     try {
       const userMemory = this.config.getUserMemory();
       // 获取核心系统提示
@@ -534,10 +534,10 @@ export class GeminiClient {
       return null;
     }
 
-    const { totalTokens: originalTokenCount } =
+    let { totalTokens: originalTokenCount } =
       await this.getContentGenerator().countTokens({
         model: this.model,
-        contents: history,
+        contents: curatedHistory,
       });
 
     // 如果不是强制，则根据上下文大小检查是否应该压缩。
@@ -571,30 +571,31 @@ export class GeminiClient {
     const response = await this.getChat().sendMessage({
       message: summarizationRequestMessage,
     });
-    const newHistory = [
+    this.chat = await this.startChat([
       {
         role: 'user',
-        parts: [summarizationRequestMessage],
+        parts: [{ text: summary }],
       },
       {
         role: 'model',
-        parts: [{ text: response.text }],
+        parts: [{ text: 'Got it. Thanks for the additional context!' }],
       },
-    ];
-    this.chat = await this.startChat(newHistory);
-    const newTokenCount = (
+    ]);
+
+    const { totalTokens: newTokenCount } =
       await this.getContentGenerator().countTokens({
         model: this.model,
-        contents: newHistory,
-      })
-    ).totalTokens;
+        contents: this.getChat().getHistory(),
+      });
+    if (newTokenCount === undefined) {
+      console.warn('Could not determine compressed history token count.');
+      return null;
+    }
 
-    return originalTokenCount && newTokenCount
-      ? {
-          originalTokenCount,
-          newTokenCount,
-        }
-      : null;
+    return {
+      originalTokenCount,
+      newTokenCount,
+    };
   }
 
   /**

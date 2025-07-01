@@ -28,7 +28,6 @@ import { promises as fs } from 'fs';
 import { useInput } from 'ink';
 import path from 'path';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useSessionStats } from '../contexts/SessionContext.js';
 import {
   HistoryItem,
   HistoryItemToolGroup,
@@ -112,7 +111,6 @@ export const useGeminiStream = (
     useStateAndRef<HistoryItemWithoutId | null>(null);
   const processedMemoryToolsRef = useRef<Set<string>>(new Set());
   const logger = useLogger();
-  const { startNewTurn, addUsage } = useSessionStats();
   const gitService = useMemo(() => {
     if (!config.getProjectRoot()) {
       return;
@@ -132,6 +130,11 @@ export const useGeminiStream = (
               completedToolCallsFromScheduler as TrackedToolCall[],
             ),
             Date.now(),
+          );
+
+          // Handle tool response submission immediately when tools complete
+          await handleCompletedTools(
+            completedToolCallsFromScheduler as TrackedToolCall[],
           );
         }
       },
@@ -497,9 +500,6 @@ export const useGeminiStream = (
           case ServerGeminiEventType.ChatCompressed:
             handleChatCompressionEvent(event.value);
             break;
-          case ServerGeminiEventType.UsageMetadata:
-            addUsage(event.value);
-            break;
           case ServerGeminiEventType.ToolCallConfirmation:
           case ServerGeminiEventType.ToolCallResponse:
             // 在这一层不做任何处理
@@ -523,7 +523,6 @@ export const useGeminiStream = (
       handleErrorEvent,
       scheduleToolCalls,
       handleChatCompressionEvent,
-      addUsage,
     ],
   );
   
@@ -619,7 +618,6 @@ export const useGeminiStream = (
       setPendingHistoryItem,
       setInitError,
       geminiClient,
-      startNewTurn,
       onAuthError,
       config,
     ],
@@ -647,18 +645,17 @@ export const useGeminiStream = (
             tc.status === 'error' ||
             tc.status === 'cancelled';
 
-          if (isTerminalState) {
-            const completedOrCancelledCall = tc as
-              | TrackedCompletedToolCall
-              | TrackedCancelledToolCall;
-            return (
-              !completedOrCancelledCall.responseSubmittedToGemini &&
-              completedOrCancelledCall.response?.responseParts !== undefined
-            );
-          }
-          return false;
-        },
-      );
+            if (isTerminalState) {
+              const completedOrCancelledCall = tc as
+                | TrackedCompletedToolCall
+                | TrackedCancelledToolCall;
+              return (
+                completedOrCancelledCall.response?.responseParts !== undefined
+              );
+            }
+            return false;
+          },
+        );
 
       // 对于客户端主动发起的工具调用（如/memory add），完成后直接标记为已提交，无需发回给Gemini
       const clientTools = completedAndReadyToSubmitTools.filter(

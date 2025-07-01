@@ -45,6 +45,11 @@ export interface WriteFileToolParams {
    * 要写入文件的内容。
    */
   content: string;
+
+  /**
+   * Whether the proposed content was modified by the user.
+   */
+  modified_by_user?: boolean;
 }
 
 /**
@@ -314,7 +319,7 @@ export class WriteFileTool
       }
 
       return {
-        llmContent: llmSuccessMessage,
+        llmContent: llmSuccessMessageParts.join(' '),
         returnDisplay: displayResult,
       };
     } catch (error) {
@@ -424,6 +429,7 @@ export class WriteFileTool
       ) => ({
         ...originalParams,
         content: modifiedProposedContent,
+        modified_by_user: true,
       }),
     };
   }

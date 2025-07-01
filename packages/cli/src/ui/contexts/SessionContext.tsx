@@ -46,10 +46,6 @@ interface SessionStatsState {
  */
 interface SessionStatsContextValue {
   stats: SessionStatsState;
-  startNewTurn: () => void;
-  addUsage: (
-    metadata: GenerateContentResponseUsageMetadata & { apiTimeMs?: number },
-  ) => void;
 }
 
 // --- Context 定义 ---
@@ -201,10 +197,8 @@ export const SessionStatsProvider: React.FC<{ children: React.ReactNode }> = ({
   const value = useMemo(
     () => ({
       stats,
-      startNewTurn,
-      addUsage: aggregateTokens,
     }),
-    [stats, startNewTurn, aggregateTokens],
+    [stats],
   );
 
   return (

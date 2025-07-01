@@ -49,6 +49,11 @@ export interface EditToolParams {
    * 当您想要替换多个出现时使用此参数。
    */
   expected_replacements?: number;
+
+  /**
+   * Whether the edit was modified manually by the user.
+   */
+  modified_by_user?: boolean;
 }
 
 /**
@@ -259,6 +264,9 @@ export class EditTool
           raw: `编辑失败，在 ${params.file_path} 中找到 0 个 old_string 的出现。未进行任何编辑。未找到 old_string 中的确切文本。请确保您没有错误地转义内容，并检查空格、缩进和上下文。使用 ${ReadFileTool.Name} 工具进行验证。`,
         };
       } else if (occurrences !== expectedReplacements) {
+        const occurenceTerm =
+          expectedReplacements === 1 ? 'occurrence' : 'occurrences';
+
         error = {
           display: `编辑失败，预期 ${expectedReplacements} 次出现，但找到了 ${occurrences} 次。`,
           raw: `编辑失败，在文件 ${params.file_path} 中，预期 ${expectedReplacements} 次出现，但找到了 ${occurrences} 次 old_string`,
@@ -432,7 +440,7 @@ export class EditTool
         : `已成功修改文件：${params.file_path}（${editData.occurrences} 次替换）。`;
 
       return {
-        llmContent: llmSuccessMessage,
+        llmContent: llmSuccessMessageParts.join(' '),
         returnDisplay: displayResult,
       };
     } catch (error) {
@@ -491,6 +499,7 @@ export class EditTool
         ...originalParams,
         old_string: oldContent,
         new_string: modifiedProposedContent,
+        modified_by_user: true,
       }),
     };
   }

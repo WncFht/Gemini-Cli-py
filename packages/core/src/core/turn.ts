@@ -197,7 +197,6 @@ export type ServerGeminiStreamEvent =
   | ServerGeminiUserCancelledEvent
   | ServerGeminiErrorEvent
   | ServerGeminiChatCompressedEvent
-  | ServerGeminiUsageMetadataEvent
   | ServerGeminiThoughtEvent;
 
 /**
@@ -207,7 +206,6 @@ export type ServerGeminiStreamEvent =
 export class Turn {
   readonly pendingToolCalls: ToolCallRequestInfo[];
   private debugResponses: GenerateContentResponse[];
-  private lastUsageMetadata: GenerateContentResponseUsageMetadata | null = null;
 
   constructor(private readonly chat: GeminiChat) {
     this.pendingToolCalls = [];
@@ -225,7 +223,6 @@ export class Turn {
     req: PartListUnion,
     signal: AbortSignal,
   ): AsyncGenerator<ServerGeminiStreamEvent> {
-    const startTime = Date.now();
     try {
       // 从 GeminiChat 获取流式响应
       const responseStream = await this.chat.sendMessageStream({
