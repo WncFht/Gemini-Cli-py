@@ -10,7 +10,7 @@ from typing import Any, Generic, Protocol, TypeVar
 
 from pydantic import BaseModel
 
-from .common import ToolCallConfirmationDetails
+from gemini_cli_core.tools.common import ToolCallConfirmationDetails
 
 # --- Type Variables for Generics ---
 TParams = TypeVar("TParams", bound=BaseModel)
