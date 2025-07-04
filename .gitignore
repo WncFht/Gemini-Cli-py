@@ -65,3 +65,5 @@ htmlcov/
 # uv
 .venv/
 uv.lock
+
+.ruff_cache/
