@@ -6,6 +6,7 @@
 import asyncio
 import json
 import logging
+import uuid
 from collections.abc import AsyncGenerator
 from datetime import datetime
 from types import (
@@ -17,6 +18,13 @@ from types import (
 )
 from typing import Any
 
+from gemini_cli_core.core.cancellation import CancelSignal
+from gemini_cli_core.core.nodes.tool_nodes import (
+    CancelledToolCall,
+    ScheduledToolCall,
+    ToolCall,
+    WaitingToolCall,
+)
 from gemini_cli_core.tools.common import ToolConfirmationOutcome
 from gemini_cli_core.utils.errors import get_error_message, report_error
 from gemini_cli_core.utils.retry import retry_with_backoff
@@ -32,6 +40,7 @@ from .graphs.conversation_graph import (
 from .graphs.states import ConversationState
 from .graphs.tool_execution_graph import (
     ToolExecutionState,
+    create_error_response,
     create_tool_execution_graph,
 )
 from .prompts import get_core_system_prompt
@@ -60,6 +69,9 @@ class GeminiClient:
         self._conversation_state = ConversationState()
         self._history: list[Content] = []
         self._current_tool_execution_state: ToolExecutionState | None = None
+        # Each app instance gets a unique thread_id for stateful graph execution
+        self.thread_id = str(uuid.uuid4())
+        self.cancel_signal = CancelSignal()
 
     async def initialize(
         self, content_generator_config: ContentGeneratorConfig
@@ -73,7 +85,7 @@ class GeminiClient:
         )
         tool_registry = await self.config.get_tool_registry()
         self.conversation_graph = create_conversation_graph(
-            self.config, self.emitter, tool_registry
+            self.config, self.emitter, tool_registry, self.cancel_signal
         )
         self.conversation_graph.set_content_generator(self.content_generator)
         await self._start_chat()
@@ -572,16 +584,75 @@ class GeminiClient:
             )
 
         initial_state = {"messages": messages}
-        async for event in self.conversation_graph.astream(initial_state):
+
+        # Pass the thread_id in the config for the graph to be stateful
+        config = {"configurable": {"thread_id": self.thread_id}}
+
+        async for event in self.conversation_graph.astream(
+            initial_state, config
+        ):
             yield event
 
     async def resume_with_tool_confirmation(self, call_id: str, outcome: str):
         """
         Resumes a graph that was interrupted waiting for tool confirmation.
+        This is achieved by updating the state of the graph's checkpointer.
         """
         if not self.conversation_graph:
             raise RuntimeError("Cannot resume, no graph instance found.")
 
-        # TODO: Implement the actual logic to find the interrupted state
-        # and resume the graph with the new information.
-        print(f"Resuming graph for tool call {call_id} with outcome: {outcome}")
+        config = {"configurable": {"thread_id": self.thread_id}}
+
+        # Get the latest state from the checkpointer
+        current_state = self.conversation_graph.get_state(config)
+        if not current_state:
+            raise RuntimeError("Cannot resume, no state found for the session.")
+
+        # Find the specific tool call and update its status
+        tool_execution_state = current_state.get("tool_execution_state")
+        if not tool_execution_state or not tool_execution_state.get(
+            "tool_calls"
+        ):
+            return  # Nothing to do
+
+        new_tool_calls: list[ToolCall] = []
+        call_updated = False
+        for call in tool_execution_state["tool_calls"]:
+            if (
+                isinstance(call, WaitingToolCall)
+                and call.request.call_id == call_id
+            ):
+                call_updated = True
+                if outcome == "approve":
+                    new_tool_calls.append(
+                        ScheduledToolCall(**call.model_dump())
+                    )
+                else:  # "cancel"
+                    # Create a dummy response for cancellation
+                    response = create_error_response(
+                        call.request, Exception("User cancelled.")
+                    )
+                    new_tool_calls.append(
+                        CancelledToolCall(
+                            request=call.request,
+                            tool=call.tool,
+                            response=response,
+                            outcome="cancel",
+                        )
+                    )
+            else:
+                new_tool_calls.append(call)
+
+        if not call_updated:
+            return  # Call not found or already processed
+
+        # Update the state in the checkpointer
+        await self.conversation_graph.update_state(
+            config,
+            {"tool_execution_state": {"tool_calls": new_tool_calls}},
+            as_node="execute_tools",  # We want to resume at the "execute_tools" node
+        )
+
+    def cancel(self):
+        """Signals the app to cancel any ongoing operations."""
+        self.cancel_signal.set()

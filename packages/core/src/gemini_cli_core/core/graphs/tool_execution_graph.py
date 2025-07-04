@@ -10,6 +10,7 @@ import time
 from functools import partial
 from typing import Any
 
+from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, CompiledGraph, StateGraph
 
 from gemini_cli_core.api.events import (
@@ -17,6 +18,7 @@ from gemini_cli_core.api.events import (
     ServerToolCallConfirmationDetails,
     ToolCallResponseInfo,
 )
+from gemini_cli_core.core.cancellation import CancelSignal
 from gemini_cli_core.core.config import Config
 from gemini_cli_core.core.events import EventEmitter
 from gemini_cli_core.core.nodes.tool_nodes import (
@@ -37,11 +39,16 @@ class ToolNodeContext:
     """Shared context for tool execution nodes."""
 
     def __init__(
-        self, config: Config, emitter: EventEmitter, tool_registry: ToolRegistry
+        self,
+        config: Config,
+        emitter: EventEmitter,
+        tool_registry: ToolRegistry,
+        cancel_signal: CancelSignal,
     ):
         self.config = config
         self.emitter = emitter
         self.tool_registry = tool_registry
+        self.cancel_signal = cancel_signal
 
 
 def create_error_response(request, error: Exception) -> ToolCallResponseInfo:
@@ -95,11 +102,24 @@ async def execute_single_tool(
 ) -> CompletedToolCall:
     """Executes a single scheduled tool call."""
     start_time = time.time()
+
+    def live_output_callback(output_chunk: str):
+        """Callback to emit live tool output."""
+        event_data = {
+            "type": "tool_log",
+            "payload": {
+                "callId": call.request.request.call_id,
+                "output": output_chunk,
+            },
+        }
+        context.emitter.emit("tool_log", event_data)
+
     try:
-        # TODO: Handle live output by passing a callback
-        # TODO: Handle AbortSignal equivalent for cancellation
+        # Pass the cancel signal to the tool execution method
         tool_result: ToolResult = await call.tool.execute(
-            call.request.args, None, None
+            call.request.args,
+            context.cancel_signal,
+            live_output_callback,
         )
 
         response_parts = convert_to_function_response(
@@ -264,8 +284,9 @@ def create_tool_execution_graph(
     """
     Creates the tool execution graph.
     """
-    context = ToolNodeContext(config, emitter, tool_registry)
+    context = ToolNodeContext(config, emitter, tool_registry, CancelSignal())
     graph = StateGraph(ToolExecutionState)
+    checkpointer = MemorySaver()
 
     # Create nodes with context
     schedule_tools = partial(schedule_tools_node, context=context)
@@ -292,4 +313,6 @@ def create_tool_execution_graph(
     graph.add_edge("execute_tools", END)
 
     interrupt_nodes = ["wait_for_approval"]
-    return graph.compile(interrupt_before=interrupt_nodes)
+    return graph.compile(
+        checkpointer=checkpointer, interrupt_before=interrupt_nodes
+    )

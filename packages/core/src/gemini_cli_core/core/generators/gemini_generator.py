@@ -9,6 +9,8 @@ from collections.abc import AsyncGenerator
 from typing import Any
 
 from google import generativeai as genai
+from vertexai.generative_models import GenerativeModel as VertexGenerativeModel
+from google.cloud import aiplatform
 
 from gemini_cli_core.core.config import DEFAULT_GEMINI_MODEL
 from gemini_cli_core.core.generators.base import (
@@ -195,6 +197,55 @@ class GeminiContentGenerator(ContentGenerator):
         return result
 
 
+class VertexAIContentGenerator(ContentGenerator):
+    """
+    Vertex AI 内容生成器实现
+    使用 Google Cloud AI Platform SDK 与 Vertex AI 交互
+    """
+
+    def __init__(
+        self, client: VertexGenerativeModel, config: ContentGeneratorConfig
+    ):
+        self.client = client
+        self.config = config
+
+    async def generate_content(
+        self,
+        model: str,
+        config: dict[str, Any],
+        contents: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """生成内容 - Vertex AI 实现"""
+        raise NotImplementedError("Vertex AI 内容生成器尚未实现")
+
+    async def generate_content_stream(
+        self,
+        model: str,
+        config: dict[str, Any],
+        contents: list[dict[str, Any]],
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """流式生成内容 - Vertex AI 实现"""
+        raise NotImplementedError("Vertex AI 流式生成尚未实现")
+
+    async def count_tokens(
+        self,
+        model: str,
+        contents: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """计算 token - Vertex AI 实现"""
+        raise NotImplementedError("Vertex AI token 计算尚未实现")
+
+    async def embed_content(
+        self,
+        model: str,
+        contents: list[str],
+        task_type: str | None = None,
+        title: str | None = None,
+    ) -> dict[str, Any]:
+        """生成嵌入 - Vertex AI 实现"""
+        raise NotImplementedError("Vertex AI 嵌入生成尚未实现")
+
+
 class CodeAssistContentGenerator(ContentGenerator):
     """
     Code Assist 内容生成器实现
@@ -292,19 +343,15 @@ async def create_content_generator_config(
         )
         return content_generator_config
 
-    # 如果使用 Vertex AI，需要 API Key 和 GCP 项目信息
+    # 如果使用 Vertex AI，需要 GCP 项目信息
     if (
         auth_type == AuthType.USE_VERTEX_AI
-        and google_api_key
         and google_cloud_project
         and google_cloud_location
     ):
-        content_generator_config["api_key"] = google_api_key
         content_generator_config["vertexai"] = True
-        content_generator_config["model"] = await get_effective_model(
-            content_generator_config["api_key"],
-            content_generator_config["model"],
-        )
+        # Vertex AI 模型不需要通过 API key 验证，它使用 ADC
+        content_generator_config["model"] = model or DEFAULT_GEMINI_MODEL
         return content_generator_config
 
     return content_generator_config
@@ -336,8 +383,19 @@ async def create_content_generator(
     if config.get("auth_type") == AuthType.LOGIN_WITH_GOOGLE_PERSONAL:
         return CodeAssistContentGenerator(http_options, config["auth_type"])
 
-    # 对于 API Key 或 Vertex AI，使用标准的 Gemini SDK
-    if config.get("auth_type") in [AuthType.USE_GEMINI, AuthType.USE_VERTEX_AI]:
+    # 对于 Vertex AI
+    if config.get("vertexai"):
+        try:
+            project = os.getenv("GOOGLE_CLOUD_PROJECT")
+            location = os.getenv("GOOGLE_CLOUD_LOCATION")
+            aiplatform.init(project=project, location=location)
+            model_instance = VertexGenerativeModel(config["model"])
+            return VertexAIContentGenerator(model_instance, config)
+        except Exception as e:
+            raise GeminiError(f"创建 Vertex AI contentGenerator 失败: {e}", "vertex_ai_error")
+
+    # 对于 Gemini API Key
+    if config.get("auth_type") == AuthType.USE_GEMINI:
         # 配置 SDK
         api_key = config.get("api_key")
         if api_key:
@@ -346,11 +404,6 @@ async def create_content_generator(
                 transport="rest",  # or "grpc"
                 client_options={"api_endpoint": os.getenv("API_ENDPOINT")},
             )
-
-        # 如果是 Vertex AI，需要额外配置
-        if config.get("vertexai"):
-            # TODO: 配置 Vertex AI
-            pass
 
         # 创建一个占位符或默认模型实例
         # 具体的模型将在每次调用时在方法内部指定

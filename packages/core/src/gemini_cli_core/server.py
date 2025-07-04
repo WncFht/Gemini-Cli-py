@@ -149,7 +149,7 @@ async def cancel(request: CancelRequest):
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    # TODO: Implement actual cancellation logic in GeminiApp/LangGraph
+    session.cancel()
     print(f"Cancellation requested for session {request.session_id}")
 
     return {"status": "cancellation_requested"}

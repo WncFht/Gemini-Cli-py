@@ -122,7 +122,7 @@ class ShellTool(BaseTool[ShellToolParams, ToolResult]):
                 line_str = line.decode("utf-8", errors="replace")
                 output += line_str
                 if update_output:
-                    update_output(output)
+                    update_output(line_str)
 
         stdout_task = asyncio.create_task(read_stream(proc.stdout, True))
         stderr_task = asyncio.create_task(read_stream(proc.stderr, False))

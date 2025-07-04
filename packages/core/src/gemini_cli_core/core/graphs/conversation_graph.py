@@ -8,9 +8,11 @@ from collections.abc import AsyncIterator
 from functools import partial
 from typing import Any
 
+from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
 from langgraph.graph.graph import CompiledGraph
 
+from gemini_cli_core.core.cancellation import CancelSignal
 from gemini_cli_core.core.config import Config
 from gemini_cli_core.core.events import EventEmitter
 from gemini_cli_core.core.graphs.states import ConversationState
@@ -32,6 +34,18 @@ from gemini_cli_core.tools.base.registry import ToolRegistry
 logger = logging.getLogger(__name__)
 
 
+class ChatNodeContext:
+    """Shared context for chat nodes."""
+
+    def __init__(
+        self, config: Config, emitter: EventEmitter, cancel_signal: CancelSignal
+    ):
+        self.config = config
+        self.emitter = emitter
+        self.cancel_signal = cancel_signal
+        # ...
+
+
 async def execute_tools_node(
     state: ConversationState,
     context: ChatNodeContext,
@@ -46,9 +60,9 @@ async def execute_tools_node(
 
     logger.info(f"Executing {len(pending_calls)} tool calls...")
 
-    # Create and compile the tool execution graph
+    # Create and compile the tool execution graph, passing the cancel signal
     tool_graph = create_tool_execution_graph(
-        context.config, context.emitter, tool_registry
+        context.config, context.emitter, tool_registry, context.cancel_signal
     )
 
     # Run the subgraph with the pending calls
@@ -157,7 +171,10 @@ def should_compress_edge(state: ConversationState) -> str:
 
 
 def create_conversation_graph(
-    config: Config, emitter: EventEmitter, tool_registry: ToolRegistry
+    config: Config,
+    emitter: EventEmitter,
+    tool_registry: ToolRegistry,
+    cancel_signal: CancelSignal,
 ) -> "EventAwareGraph":
     """
     创建对话图
@@ -166,16 +183,18 @@ def create_conversation_graph(
         config: 配置对象
         emitter: 事件发送器
         tool_registry: 工具注册表
+        cancel_signal: 取消信号
 
     Returns:
         一个 EventAwareGraph 实例
 
     """
-    # 创建节点上下文
-    context = ChatNodeContext(config, emitter)
+    # Create the context with the cancel signal
+    context = ChatNodeContext(config, emitter, cancel_signal)
 
     # 创建状态图
     graph = StateGraph(ConversationState)
+    checkpointer = MemorySaver()
 
     # 创建带上下文的节点函数
     process_input = partial(process_user_input_node, context=context)
@@ -221,7 +240,7 @@ def create_conversation_graph(
     graph.set_entry_point("process_input")
 
     # 编译图
-    compiled = graph.compile()
+    compiled = graph.compile(checkpointer=checkpointer)
 
     # 包装以支持事件发送和上下文
     return EventAwareGraph(compiled, emitter, context)
