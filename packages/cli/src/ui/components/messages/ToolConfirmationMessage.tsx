@@ -4,22 +4,23 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React from 'react';
-import { Box, Text, useInput } from 'ink';
-import { DiffRenderer } from './DiffRenderer.js';
-import { Colors } from '../../colors.js';
 import {
-  ToolCallConfirmationDetails,
-  ToolConfirmationOutcome,
-  ToolExecuteConfirmationDetails,
-  ToolMcpConfirmationDetails,
-  Config,
+    Config,
+    ToolCallConfirmationDetails,
+    ToolConfirmationOutcome,
+    ToolExecuteConfirmationDetails,
+    ToolMcpConfirmationDetails,
 } from '@google/gemini-cli-core';
-import {
-  RadioButtonSelect,
-  RadioSelectItem,
-} from '../shared/RadioButtonSelect.js';
+import { Box, Text, useInput } from 'ink';
+import React, { useState } from 'react';
+import { useSession } from '../../../contexts/SessionContext.js';
+import { Colors } from '../../colors.js';
 import { MaxSizedBox } from '../shared/MaxSizedBox.js';
+import {
+    RadioButtonSelect,
+    RadioSelectItem,
+} from '../shared/RadioButtonSelect.js';
+import { DiffRenderer } from './DiffRenderer.js';
 
 export interface ToolConfirmationMessageProps {
   confirmationDetails: ToolCallConfirmationDetails;
@@ -29,14 +30,15 @@ export interface ToolConfirmationMessageProps {
   terminalWidth: number;
 }
 
-export const ToolConfirmationMessage: React.FC<
-  ToolConfirmationMessageProps
-> = ({
+export const ToolConfirmationMessage: React.FC<ToolConfirmationMessageProps> = ({
   confirmationDetails,
   isFocused = true,
   availableTerminalHeight,
   terminalWidth,
 }) => {
+  const { client } = useSession();
+  const [isSubmitted, setIsSubmitted] = useState(false);
+
   const { onConfirm } = confirmationDetails;
   const childWidth = terminalWidth - 2; // 2 for padding
 
@@ -47,7 +49,14 @@ export const ToolConfirmationMessage: React.FC<
     }
   });
 
-  const handleSelect = (item: ToolConfirmationOutcome) => onConfirm(item);
+  const callId = confirmationDetails.request.callId;
+
+  const handleSelect = (item: { value: ToolConfirmationOutcome }) => {
+    if (isSubmitted) return;
+    
+    client.confirmTool(callId, item.value);
+    setIsSubmitted(true);
+  };
 
   let bodyContent: React.ReactNode | null = null; // Removed contextDisplay here
   let question: string;
@@ -243,6 +252,7 @@ export const ToolConfirmationMessage: React.FC<
           items={options}
           onSelect={handleSelect}
           isFocused={isFocused}
+          disabled={isSubmitted}
         />
       </Box>
     </Box>

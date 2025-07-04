@@ -6,6 +6,7 @@
 
 import React, {
   createContext,
+  PropsWithChildren,
   useCallback,
   useContext,
   useMemo,
@@ -13,6 +14,8 @@ import React, {
 } from 'react';
 
 import { type GenerateContentResponseUsageMetadata } from '@google/genai';
+import { Config } from '../../../config/config.js';
+import { PythonApiClient } from '../../api/pythonApiClient.js';
 
 // --- 类型定义 ---
 
@@ -42,15 +45,16 @@ interface SessionStatsState {
 }
 
 /**
- * 定义了 Context 最终暴露给消费者的值，包括状态和操作函数。
+ * Defines the value exposed by the SessionContext, including the client instance.
  */
-interface SessionStatsContextValue {
-  stats: SessionStatsState;
+export interface SessionContextValue {
+  config: Config;
+  client: PythonApiClient;
 }
 
 // --- Context 定义 ---
 
-const SessionStatsContext = createContext<SessionStatsContextValue | undefined>(
+export const SessionContext = createContext<SessionContextValue | undefined>(
   undefined,
 );
 
@@ -202,9 +206,9 @@ export const SessionStatsProvider: React.FC<{ children: React.ReactNode }> = ({
   );
 
   return (
-    <SessionStatsContext.Provider value={value}>
+    <SessionContext.Provider value={value}>
       {children}
-    </SessionStatsContext.Provider>
+    </SessionContext.Provider>
   );
 };
 
@@ -215,11 +219,28 @@ export const SessionStatsProvider: React.FC<{ children: React.ReactNode }> = ({
  * 它封装了 `useContext` 并添加了错误检查。
  */
 export const useSessionStats = () => {
-  const context = useContext(SessionStatsContext);
+  const context = useContext(SessionContext);
   if (context === undefined) {
     throw new Error(
       'useSessionStats must be used within a SessionStatsProvider',
     );
+  }
+  return context;
+};
+
+export const SessionProvider = ({
+  children,
+  value,
+}: PropsWithChildren<{ value: SessionContextValue }>) => {
+  return (
+    <SessionContext.Provider value={value}>{children}</SessionContext.Provider>
+  );
+};
+
+export const useSession = () => {
+  const context = useContext(SessionContext);
+  if (context === undefined) {
+    throw new Error('useSession must be used within a SessionProvider');
   }
   return context;
 };

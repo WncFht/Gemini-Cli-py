@@ -14,12 +14,14 @@ import {
   ShellTool,
   WriteFileTool,
 } from '@google/gemini-cli-core';
-import { render } from 'ink';
+import { render, Text, useApp } from 'ink';
 import { spawn } from 'node:child_process';
 import os from 'node:os';
-import { basename } from 'node:path';
+import path, { basename } from 'node:path';
 import v8 from 'node:v8';
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import { PythonApiClient } from './api/pythonApiClient.js';
+import { PythonServerManager } from './api/pythonServerManager.js';
 import { validateAuthMethod } from './config/auth.js';
 import { loadCliConfig } from './config/config.js';
 import { Extension, loadExtensions } from './config/extension.js';
@@ -29,8 +31,11 @@ import {
   SettingScope,
 } from './config/settings.js';
 import { runNonInteractive } from './nonInteractiveCli.js';
-import { AppWrapper } from './ui/App.js';
+import { App } from './ui/App.js';
 import { setMaxSizedBoxDebugging } from './ui/components/shared/MaxSizedBox.js';
+import {
+  SessionProvider
+} from './ui/contexts/SessionContext.js';
 import { themeManager } from './ui/themes/theme-manager.js';
 import { cleanupCheckpoints } from './utils/cleanup.js';
 import { readStdin } from './utils/readStdin.js';
@@ -191,11 +196,13 @@ export async function main() {
     // 使用 ink 渲染 React 组件，启动交互式应用
     render(
       <React.StrictMode>
-        <AppWrapper
-          config={config}
-          settings={settings}
-          startupWarnings={startupWarnings}
-        />
+        <SessionProvider value={null}>
+          <AppWrapper
+            config={config}
+            settings={settings}
+            startupWarnings={startupWarnings}
+          />
+        </SessionProvider>
       </React.StrictMode>,
       { exitOnCtrlC: false },
     );
@@ -323,4 +330,65 @@ async function validateNonInterActiveAuth(
 
   await nonInteractiveConfig.refreshAuth(selectedAuthType);
   return nonInteractiveConfig;
+}
+
+interface GeminiOptions {
+  // ...
+}
+
+export default function Gemini({
+  // ... options
+}: GeminiOptions) {
+  const [apiClient, setApiClient] = useState<PythonApiClient | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [config, setConfig] = useState<Config | null>(null);
+
+  const { exit } = useApp();
+
+  useEffect(() => {
+    // This effect should only run once to initialize everything.
+    const initialize = async () => {
+      try {
+        const cliConfig = await loadCliConfig();
+        setConfig(cliConfig);
+
+        const corePackagePath = path.resolve(__dirname, '../../../core');
+        const serverManager = new PythonServerManager(corePackagePath);
+        
+        serverManager.start();
+        await serverManager.ready();
+        
+        const client = new PythonApiClient(cliConfig);
+        await client.startSession();
+        
+        setApiClient(client);
+
+        // Setup cleanup logic
+        const cleanup = () => {
+          client.cancel().finally(() => serverManager.stop());
+          exit();
+        };
+        process.on('SIGINT', cleanup);
+        process.on('SIGTERM', cleanup);
+      } catch (e: any) {
+        setError(e.message || 'An unknown error occurred during initialization.');
+      }
+    };
+
+    initialize();
+  }, [exit]);
+
+  if (error) {
+    return <Text color="red">Initialization Error: {error}</Text>;
+  }
+
+  if (!apiClient || !config) {
+    return <Text>Initializing backend...</Text>;
+  }
+
+  return (
+    <SessionProvider value={{ client: apiClient, config }}>
+      <App startupWarnings={[]} />
+    </SessionProvider>
+  );
 }
