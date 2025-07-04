@@ -1,168 +1,141 @@
 """
-遥测日志记录器 - 从 logger.ts 迁移
-提供 API 调用的日志记录功能
+This file is refactored from packages/core_ts/src/telemetry/loggers.ts.
+It provides functions to log different types of telemetry events.
 """
 
 import logging
-import time
 from typing import Any
 
-logger = logging.getLogger(__name__)
+from gemini_cli_core.telemetry.events import (
+    ApiErrorEvent,
+    ApiRequestEvent,
+    ApiResponseEvent,
+    StartSessionEvent,
+    TelemetryEvent,
+    ToolCallEvent,
+    UserPromptEvent,
+)
+from gemini_cli_core.telemetry.metrics import (
+    record_api_error_metrics,
+    record_api_response_metrics,
+    record_token_usage_metrics,
+    record_tool_call_metrics,
+)
+from gemini_cli_core.telemetry.transport import ClearcutTransport
+
+# This will be configured by the SDK
+_transport: ClearcutTransport | None = None
+_config: Any | None = None  # Using Any to avoid circular dependency on config
+_is_initialized = False
+
+# A standard Python logger for structured, observable logs
+observable_logger = logging.getLogger("gemini_cli_observable")
 
 
-class ApiEvent:
-    """API 事件基类"""
-
-    def __init__(self, model: str):
-        self.model = model
-        self.timestamp = time.time()
-
-
-class ApiRequestEvent(ApiEvent):
-    """API 请求事件"""
-
-    def __init__(self, model: str, request_text: str):
-        super().__init__(model)
-        self.request_text = request_text
-
-
-class ApiResponseEvent(ApiEvent):
-    """API 响应事件"""
-
-    def __init__(
-        self,
-        model: str,
-        duration_ms: int,
-        usage_metadata: dict[str, Any] | None = None,
-        response_text: str | None = None,
-    ):
-        super().__init__(model)
-        self.duration_ms = duration_ms
-        self.usage_metadata = usage_metadata
-        self.response_text = response_text
-
-
-class ApiErrorEvent(ApiEvent):
-    """API 错误事件"""
-
-    def __init__(
-        self,
-        model: str,
-        error_message: str,
-        duration_ms: int,
-        error_type: str = "unknown",
-    ):
-        super().__init__(model)
-        self.error_message = error_message
-        self.duration_ms = duration_ms
-        self.error_type = error_type
-
-
-async def log_api_request(
-    config: Any,
-    model: str,
-    request_text: str,
-) -> None:
-    """
-    记录 API 请求
-
-    Args:
-        config: 配置对象
-        model: 模型名称
-        request_text: 请求文本
-
-    """
-    event = ApiRequestEvent(model, request_text)
-
-    logger.info(
-        f"API Request to {model}",
-        extra={
-            "event_type": "api_request",
-            "model": model,
-            "request_length": len(request_text),
-            "timestamp": event.timestamp,
-        },
+def _log_to_observable(event: TelemetryEvent):
+    """Logs events to a standard logger for observability."""
+    # We can configure this logger to output JSON for easy parsing.
+    observable_logger.info(
+        event.event_name, extra={"data": event.model_dump_json()}
     )
 
-    # TODO: 集成到遥测系统
-    if hasattr(config, "telemetry") and config.telemetry:
-        # 发送到遥测系统
-        pass
+
+def init_telemetry(config: Any, transport: ClearcutTransport):
+    """Initializes the telemetry system with config and transport."""
+    global _config, _transport, _is_initialized
+    _config = config
+    _transport = transport
+    _is_initialized = True
 
 
-async def log_api_response(
-    config: Any,
-    model: str,
-    duration_ms: int,
-    usage_metadata: dict[str, Any] | None = None,
-    response_text: str | None = None,
-) -> None:
-    """
-    记录 API 响应
+def log_cli_configuration(event: StartSessionEvent):
+    """Logs the initial CLI configuration."""
+    if not _is_initialized or not _transport:
+        return
+    _transport.log_event(event)
+    _log_to_observable(event)
 
-    Args:
-        config: 配置对象
-        model: 模型名称
-        duration_ms: 响应时间（毫秒）
-        usage_metadata: 使用元数据
-        response_text: 响应文本
 
-    """
-    event = ApiResponseEvent(model, duration_ms, usage_metadata, response_text)
+def log_user_prompt(event: UserPromptEvent):
+    """Logs a user prompt event."""
+    if not _is_initialized or not _transport:
+        return
 
-    logger.info(
-        f"API Response from {model} in {duration_ms}ms",
-        extra={
-            "event_type": "api_response",
-            "model": model,
-            "duration_ms": duration_ms,
-            "usage_metadata": usage_metadata,
-            "response_length": len(response_text) if response_text else 0,
-            "timestamp": event.timestamp,
-        },
+    should_log_prompts = _config and _config.get("telemetry", {}).get(
+        "log_user_prompts", False
+    )
+    if not should_log_prompts:
+        event.prompt = None  # Clear prompt if not allowed
+
+    _transport.log_event(event)
+    _log_to_observable(event)
+
+
+def log_tool_call(event: ToolCallEvent):
+    """Logs a tool call event."""
+    if not _is_initialized or not _transport:
+        return
+    _transport.log_event(event)
+    _log_to_observable(event)
+    record_tool_call_metrics(
+        config=_config,
+        function_name=event.function_name,
+        duration_ms=event.duration_ms,
+        success=event.success,
+        decision=event.decision.value if event.decision else None,
     )
 
-    # TODO: 集成到遥测系统
-    if hasattr(config, "telemetry") and config.telemetry:
-        # 发送到遥测系统
-        pass
 
-
-async def log_api_error(
-    config: Any,
-    model: str,
-    duration_ms: int,
-    error: Exception,
-) -> None:
-    """
-    记录 API 错误
-
-    Args:
-        config: 配置对象
-        model: 模型名称
-        duration_ms: 响应时间（毫秒）
-        error: 错误对象
-
-    """
-    error_message = str(error)
-    error_type = type(error).__name__
-
-    event = ApiErrorEvent(model, error_message, duration_ms, error_type)
-
-    logger.error(
-        f"API Error from {model} after {duration_ms}ms: {error_message}",
-        extra={
-            "event_type": "api_error",
-            "model": model,
-            "duration_ms": duration_ms,
-            "error_type": error_type,
-            "error_message": error_message,
-            "timestamp": event.timestamp,
-        },
-        exc_info=True,
+def log_api_request(event: ApiRequestEvent):
+    """Logs an API request event."""
+    if not _is_initialized or not _transport:
+        return
+    _transport.log_event(event)
+    _log_to_observable(event)
+    record_api_error_metrics(
+        config=_config,
+        model=event.model,
+        duration_ms=event.duration_ms,
+        status_code=event.status_code,
+        error_type=event.error_type,
     )
 
-    # TODO: 集成到遥测系统
-    if hasattr(config, "telemetry") and config.telemetry:
-        # 发送到遥测系统
-        pass
+
+def log_api_error(event: ApiErrorEvent):
+    """Logs an API error event."""
+    if not _is_initialized or not _transport:
+        return
+    _transport.log_event(event)
+    _log_to_observable(event)
+    # TODO: Add call to record_api_error_metrics from metrics.py
+
+
+def log_api_response(event: ApiResponseEvent):
+    """Logs an API response event."""
+    if not _is_initialized or not _transport:
+        return
+    _transport.log_event(event)
+    _log_to_observable(event)
+    record_api_response_metrics(
+        config=_config,
+        model=event.model,
+        duration_ms=event.duration_ms,
+        status_code=event.status_code,
+        error=event.error,
+    )
+    if not event.error:
+        record_token_usage_metrics(
+            _config, event.model, event.input_token_count, "input"
+        )
+        record_token_usage_metrics(
+            _config, event.model, event.output_token_count, "output"
+        )
+        record_token_usage_metrics(
+            _config, event.model, event.cached_content_token_count, "cache"
+        )
+        record_token_usage_metrics(
+            _config, event.model, event.thoughts_token_count, "thought"
+        )
+        record_token_usage_metrics(
+            _config, event.model, event.tool_token_count, "tool"
+        )
