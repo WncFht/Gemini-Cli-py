@@ -4,12 +4,10 @@ Gemini 内容生成器实现 - 从 contentGenerator.ts 迁移
 """
 
 import os
-import platform
 from collections.abc import AsyncGenerator
 from typing import Any
 
 from google import generativeai as genai
-from google.cloud import aiplatform
 from vertexai.generative_models import GenerativeModel as VertexGenerativeModel
 
 from gemini_cli_core.core.config import DEFAULT_GEMINI_MODEL
@@ -20,6 +18,9 @@ from gemini_cli_core.core.generators.base import (
 )
 from gemini_cli_core.core.types import GeminiError
 from gemini_cli_core.utils.model_check import get_effective_model
+
+from .base import ContentGenerator, ContentGeneratorConfig
+from .code_assist_generator import CodeAssistContentGenerator
 
 
 class GeminiContentGenerator(ContentGenerator):
@@ -361,59 +362,198 @@ async def create_content_generator(
     config: ContentGeneratorConfig,
 ) -> ContentGenerator:
     """
-    工厂函数，根据提供的配置创建并返回一个 ContentGenerator 实例
-
-    Args:
-        config: 内容生成器的配置
-
-    Returns:
-        ContentGenerator 实例
-
+    Factory function to create the appropriate content generator based on auth type.
     """
-    version = os.getenv("CLI_VERSION", platform.python_version())
+    if config.auth_type == "oauth-personal":
+        return CodeAssistContentGenerator(project_id=config.project_id)
 
-    # 设置 HTTP 头部，以便后端服务识别请求来源
-    http_options = {
-        "headers": {
-            "User-Agent": f"GeminiCLI/{version} ({platform.system()}; {platform.machine()})",
-        },
-    }
-
-    # 对于个人 OAuth 登录，使用特殊的 CodeAssistContentGenerator
-    if config.get("auth_type") == AuthType.LOGIN_WITH_GOOGLE_PERSONAL:
-        return CodeAssistContentGenerator(http_options, config["auth_type"])
-
-    # 对于 Vertex AI
-    if config.get("vertexai"):
-        try:
-            project = os.getenv("GOOGLE_CLOUD_PROJECT")
-            location = os.getenv("GOOGLE_CLOUD_LOCATION")
-            aiplatform.init(project=project, location=location)
-            model_instance = VertexGenerativeModel(config["model"])
-            return VertexAIContentGenerator(model_instance, config)
-        except Exception as e:
-            raise GeminiError(
-                f"创建 Vertex AI contentGenerator 失败: {e}", "vertex_ai_error"
-            )
-
-    # 对于 Gemini API Key
-    if config.get("auth_type") == AuthType.USE_GEMINI:
-        # 配置 SDK
-        api_key = config.get("api_key")
-        if api_key:
-            genai.configure(
-                api_key=api_key,
-                transport="rest",  # or "grpc"
-                client_options={"api_endpoint": os.getenv("API_ENDPOINT")},
-            )
-
-        # 创建一个占位符或默认模型实例
-        # 具体的模型将在每次调用时在方法内部指定
-        model_instance = genai.GenerativeModel(config["model"])
-
-        return GeminiContentGenerator(model_instance, config)
-
-    raise GeminiError(
-        f"创建 contentGenerator 时出错：不支持的 authType: {config.get('auth_type')}",
-        "unsupported_auth_type",
+    # Default to GeminiGenerator for API Key, Vertex AI, etc.
+    return GeminiContentGenerator(
+        api_key=config.api_key,
+        project_id=config.project_id,
+        location=config.location,
+        proxy=config.proxy,
+        auth_type=config.auth_type,
     )
+
+
+class GeminiGenerator(ContentGenerator):
+    """
+    ContentGenerator that interacts with the Google Gemini API.
+    """
+
+    def __init__(
+        self,
+        api_key: str | None,
+        project_id: str | None,
+        location: str | None,
+        proxy: str | None,
+        auth_type: AuthType,
+    ):
+        self.api_key = api_key
+        self.project_id = project_id
+        self.location = location
+        self.proxy = proxy
+        self.auth_type = auth_type
+
+    async def generate_content(
+        self,
+        model: str,
+        config: dict[str, Any],
+        contents: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """生成内容"""
+        try:
+            # 创建模型实例
+            model_instance = genai.GenerativeModel(
+                model_name=model,
+                generation_config=config.get("generation_config", {}),
+                system_instruction=config.get("system_instruction"),
+                tools=config.get("tools"),
+            )
+
+            # 调用 API
+            response = await model_instance.generate_content_async(
+                contents,
+                request_options={
+                    "timeout": config.get("timeout", 600),
+                },
+            )
+
+            # 转换响应格式
+            return self._convert_response(response)
+
+        except Exception as e:
+            raise GeminiError(f"生成内容失败: {e!s}", "generation_error")
+
+    async def generate_content_stream(
+        self,
+        model: str,
+        config: dict[str, Any],
+        contents: list[dict[str, Any]],
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """以流式方式生成内容"""
+        try:
+            # 创建模型实例
+            model_instance = genai.GenerativeModel(
+                model_name=model,
+                generation_config=config.get("generation_config", {}),
+                system_instruction=config.get("system_instruction"),
+                tools=config.get("tools"),
+            )
+
+            # 调用流式 API
+            response_stream = await model_instance.generate_content_async(
+                contents,
+                stream=True,
+                request_options={
+                    "timeout": config.get("timeout", 600),
+                },
+            )
+
+            # 流式返回响应
+            async for chunk in response_stream:
+                yield self._convert_response(chunk)
+
+        except Exception as e:
+            raise GeminiError(f"流式生成内容失败: {e!s}", "generation_error")
+
+    async def count_tokens(
+        self,
+        model: str,
+        contents: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """计算内容的 token 数量"""
+        try:
+            model_instance = genai.GenerativeModel(model_name=model)
+            response = await model_instance.count_tokens_async(contents)
+
+            return {
+                "total_tokens": response.total_tokens,
+                "total_billable_characters": getattr(
+                    response, "total_billable_characters", None
+                ),
+                "cached_content_token_count": getattr(
+                    response, "cached_content_token_count", None
+                ),
+            }
+
+        except Exception as e:
+            raise GeminiError(f"计算 token 失败: {e!s}", "token_count_error")
+
+    async def embed_content(
+        self,
+        model: str,
+        contents: list[str],
+        task_type: str | None = None,
+        title: str | None = None,
+    ) -> dict[str, Any]:
+        """为内容生成嵌入向量"""
+        try:
+            requests = [
+                genai.types.EmbedContentRequest(
+                    content=text, model=model, task_type=task_type, title=title
+                )
+                for text in contents
+            ]
+            batch_response = await genai.batch_embed_contents_async(requests)
+            return {"embeddings": [e.values for e in batch_response.embeddings]}
+
+        except Exception as e:
+            raise GeminiError(f"生成嵌入向量失败: {e!s}", "embedding_error")
+
+    def _convert_response(self, response: Any) -> dict[str, Any]:
+        """将 SDK 响应转换为统一格式"""
+        # 提取候选内容
+        candidates = []
+        for candidate in response.candidates:
+            parts = []
+            for part in candidate.content.parts:
+                part_dict = {}
+
+                if hasattr(part, "text"):
+                    part_dict["text"] = part.text
+                if hasattr(part, "function_call"):
+                    part_dict["function_call"] = {
+                        "name": part.function_call.name,
+                        "args": dict(part.function_call.args),
+                    }
+                if hasattr(part, "function_response"):
+                    part_dict["function_response"] = {
+                        "name": part.function_response.name,
+                        "response": part.function_response.response,
+                    }
+                if hasattr(part, "thought") and part.thought:
+                    part_dict["thought"] = True
+
+                parts.append(part_dict)
+
+            candidates.append(
+                {
+                    "content": {
+                        "role": candidate.content.role,
+                        "parts": parts,
+                    },
+                    "finish_reason": getattr(candidate, "finish_reason", None),
+                    "safety_ratings": getattr(candidate, "safety_ratings", []),
+                }
+            )
+
+        # 构建响应
+        result = {
+            "candidates": candidates,
+        }
+
+        # 添加使用元数据
+        if hasattr(response, "usage_metadata"):
+            result["usage_metadata"] = {
+                "prompt_token_count": response.usage_metadata.prompt_token_count,
+                "candidates_token_count": response.usage_metadata.candidates_token_count,
+                "total_token_count": response.usage_metadata.total_token_count,
+            }
+
+        # 添加提示反馈
+        if hasattr(response, "prompt_feedback"):
+            result["prompt_feedback"] = response.prompt_feedback
+
+        return result

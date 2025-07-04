@@ -177,6 +177,154 @@ class ServerGeminiUsageMetadataEvent(BaseModel):
     value: GenerateContentResponseUsageMetadata
 
 
+# --- Events for Code Assist Service ---
+class CodeAssistEventType(str, Enum):
+    """Defines event types specific to the Code Assist service."""
+
+    ASSIST = "assist"
+    ERROR = "error"
+    PROGRESS = "progress"
+    STATUS = "status"
+
+
+class Status(str, Enum):
+    """Status enums for Code Assist events."""
+
+    OK = "ok"
+    ERROR = "error"
+
+
+class CodeAssistError(BaseModel):
+    """Error structure for Code Assist events."""
+
+    message: str
+
+
+class CodeAssistStatusEvent(BaseModel):
+    """Event for reporting the status of an operation."""
+
+    type: Literal[CodeAssistEventType.STATUS]
+    status: Status
+    message: str | None = None
+
+
+class CodeAssistProgressEvent(BaseModel):
+    """Event for reporting progress."""
+
+    type: Literal[CodeAssistEventType.PROGRESS]
+    message: str
+
+
+class CodeAssistEvent(BaseModel):
+    """A generic Code Assist event for streaming."""
+
+    type: CodeAssistEventType
+    payload: dict[str, Any]
+
+
+class ClientMetadataIdeType(str, Enum):
+    IDE_UNSPECIFIED = "IDE_UNSPECIFIED"
+    VSCODE = "VSCODE"
+    INTELLIJ = "INTELLIJ"
+    VSCODE_CLOUD_WORKSTATION = "VSCODE_CLOUD_WORKSTATION"
+    INTELLIJ_CLOUD_WORKSTATION = "INTELLIJ_CLOUD_WORKSTATION"
+    CLOUD_SHELL = "CLOUD_SHELL"
+
+
+class ClientMetadataPlatform(str, Enum):
+    PLATFORM_UNSPECIFIED = "PLATFORM_UNSPECIFIED"
+    DARWIN_AMD64 = "DARWIN_AMD64"
+    DARWIN_ARM64 = "DARWIN_ARM64"
+    LINUX_AMD64 = "LINUX_AMD64"
+    LINUX_ARM64 = "LINUX_ARM64"
+    WINDOWS_AMD64 = "WINDOWS_AMD64"
+
+
+class ClientMetadataPluginType(str, Enum):
+    PLUGIN_UNSPECIFIED = "PLUGIN_UNSPECIFIED"
+    CLOUD_CODE = "CLOUD_CODE"
+    GEMINI = "GEMINI"
+    AIPLUGIN_INTELLIJ = "AIPLUGIN_INTELLIJ"
+    AIPLUGIN_STUDIO = "AIPLUGIN_STUDIO"
+
+
+class ClientMetadata(BaseModel):
+    ide_type: ClientMetadataIdeType | None = Field(None, alias="ideType")
+    ide_version: str | None = Field(None, alias="ideVersion")
+    plugin_version: str | None = Field(None, alias="pluginVersion")
+    platform: ClientMetadataPlatform | None = None
+    update_channel: str | None = Field(None, alias="updateChannel")
+    duet_project: str | None = Field(None, alias="duetProject")
+    plugin_type: ClientMetadataPluginType | None = Field(
+        None, alias="pluginType"
+    )
+    ide_name: str | None = Field(None, alias="ideName")
+
+
+class LoadCodeAssistRequest(BaseModel):
+    cloudaicompanion_project: str | None = Field(
+        None, alias="cloudaicompanionProject"
+    )
+    metadata: ClientMetadata
+
+
+class UserTierId(str, Enum):
+    FREE = "free-tier"
+    LEGACY = "legacy-tier"
+    STANDARD = "standard-tier"
+
+
+class PrivacyNotice(BaseModel):
+    show_notice: bool = Field(..., alias="showNotice")
+    notice_text: str | None = Field(None, alias="noticeText")
+
+
+class GeminiUserTier(BaseModel):
+    id: UserTierId
+    name: str
+    description: str
+    user_defined_cloudaicompanion_project: bool | None = Field(
+        None, alias="userDefinedCloudaicompanionProject"
+    )
+    is_default: bool | None = Field(None, alias="isDefault")
+    privacy_notice: PrivacyNotice | None = Field(None, alias="privacyNotice")
+    has_accepted_tos: bool | None = Field(None, alias="hasAcceptedTos")
+    has_onboarded_previously: bool | None = Field(
+        None, alias="hasOnboardedPreviously"
+    )
+
+
+class IneligibleTierReasonCode(str, Enum):
+    DASHER_USER = "DASHER_USER"
+    INELIGIBLE_ACCOUNT = "INELIGIBLE_ACCOUNT"
+    NON_USER_ACCOUNT = "NON_USER_ACCOUNT"
+    RESTRICTED_AGE = "RESTRICTED_AGE"
+    RESTRICTED_NETWORK = "RESTRICTED_NETWORK"
+    UNKNOWN = "UNKNOWN"
+    UNKNOWN_LOCATION = "UNKNOWN_LOCATION"
+    UNSUPPORTED_LOCATION = "UNSUPPORTED_LOCATION"
+
+
+class IneligibleTier(BaseModel):
+    reason_code: IneligibleTierReasonCode = Field(..., alias="reasonCode")
+    reason_message: str = Field(..., alias="reasonMessage")
+    tier_id: UserTierId = Field(..., alias="tierId")
+    tier_name: str = Field(..., alias="tierName")
+
+
+class LoadCodeAssistResponse(BaseModel):
+    current_tier: GeminiUserTier | None = Field(None, alias="currentTier")
+    allowed_tiers: list[GeminiUserTier] | None = Field(
+        None, alias="allowedTiers"
+    )
+    ineligible_tiers: list[IneligibleTier] | None = Field(
+        None, alias="ineligibleTiers"
+    )
+    cloudaicompanion_project: str | None = Field(
+        None, alias="cloudaicompanionProject"
+    )
+
+
 ServerGeminiStreamEvent = Union[
     ServerGeminiContentEvent,
     ServerGeminiToolCallRequestEvent,
