@@ -179,8 +179,9 @@ class Config(BaseModel):
 
     async def get_tool_registry(self) -> Any:
         """获取工具注册表 - 延迟加载"""
-        if not self._tool_registry:
-            from gemini_cli_core.tools.base.registry import ToolRegistry
+        if self._tool_registry is None:
+            # Lazy import to avoid circular dependency
+            from gemini_cli_core.tools import ToolRegistry
 
             self._tool_registry = ToolRegistry(self)
         return self._tool_registry

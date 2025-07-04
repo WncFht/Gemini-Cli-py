@@ -6,8 +6,8 @@ import httpx
 from pydantic import BaseModel, Field
 
 from gemini_cli_core.core.config import Config
-from gemini_cli_core.tools.base.tool_base import BaseTool, ToolResult
-from gemini_cli_core.utils.fetch import is_private_ip
+from gemini_cli_core.tools import BaseTool, ToolResult
+from gemini_cli_core.utils. import is_private_ip
 
 
 class WebFetchToolParams(BaseModel):

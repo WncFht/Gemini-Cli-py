@@ -13,7 +13,7 @@ from gemini_cli_core.config.models import (
 from gemini_cli_core.core.app import GeminiClient
 from gemini_cli_core.services.file_discovery import FileDiscoveryService
 from gemini_cli_core.services.git_service import GitService
-from gemini_cli_core.tools.base.registry import ToolRegistry
+from gemini_cli_core.tools import ToolRegistry
 
 logger = logging.getLogger(__name__)
 

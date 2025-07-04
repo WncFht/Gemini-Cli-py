@@ -6,7 +6,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from gemini_cli_core.core.config import Config
-from gemini_cli_core.tools.base.tool_base import BaseTool, ToolResult
+from gemini_cli_core.tools import BaseTool, ToolResult
 from gemini_cli_core.utils.git_utils import is_git_repository
 
 

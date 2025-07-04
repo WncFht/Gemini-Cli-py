@@ -25,7 +25,7 @@ from gemini_cli_core.core.nodes.chat_nodes import (
 )
 from gemini_cli_core.core.prompts.system_prompts import get_compression_prompt
 from gemini_cli_core.core.token_limits import token_limit
-from gemini_cli_core.tools.base.registry import ToolRegistry
+from gemini_cli_core.tools import ToolRegistry
 
 logger = logging.getLogger(__name__)
 

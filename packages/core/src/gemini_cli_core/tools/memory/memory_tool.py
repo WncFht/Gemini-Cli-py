@@ -4,7 +4,7 @@ from typing import Any
 import aiofiles
 from pydantic import BaseModel, Field
 
-from gemini_cli_core.tools.base.tool_base import BaseTool, ToolResult
+from gemini_cli_core.tools import BaseTool, ToolResult
 
 GEMINI_CONFIG_DIR = Path.home() / ".gemini"
 DEFAULT_CONTEXT_FILENAME = "GEMINI.md"

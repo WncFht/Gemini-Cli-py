@@ -1,15 +1,24 @@
+from __future__ import annotations
+
 import difflib
-from collections.abc import Callable
-from pathlib import Path
-from typing import Any, Generic, Protocol, TypeVar
+from typing import TYPE_CHECKING, Generic
 
 from pydantic import BaseModel
 
-from gemini_cli_core.tools.base.tool_base import Tool
+if TYPE_CHECKING:
+    from .tool_base import Tool, TParams, TResult
+
+from collections.abc import Callable
+from pathlib import Path
+from typing import Any, Protocol, TypeVar
+
 from gemini_cli_core.tools.file.diff_options import DEFAULT_DIFF_CONTEXT_LINES
 from gemini_cli_core.utils.editor import EditorType, open_diff
 
+from .tool_base import Tool
+
 TParams = TypeVar("TParams", bound=BaseModel)
+TResult = TypeVar("TResult", bound=BaseModel)
 
 
 class ModifyContext(BaseModel, Generic[TParams]):
@@ -26,7 +35,9 @@ class ModifyContext(BaseModel, Generic[TParams]):
         arbitrary_types_allowed = True
 
 
-class ModifiableTool(Tool[TParams, Any], Protocol):
+class ModifiableTool(
+    Generic[TParams, TResult], Tool[TParams, TResult], Protocol
+):
     """
     A tool that supports a user-driven modification operation.
     """

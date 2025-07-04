@@ -15,7 +15,7 @@ from gemini_cli_core.tools.mcp.mcp_tool import DiscoveredMCPTool
 
 if TYPE_CHECKING:
     from gemini_cli_core.core.types import MCPServerConfig
-    from gemini_cli_core.tools.base.registry import ToolRegistry
+    from gemini_cli_core.tools import ToolRegistry
 
 logger = logging.getLogger(__name__)
 MCP_DEFAULT_TIMEOUT_MSEC = 10 * 60 * 1000  # Python SDK uses seconds

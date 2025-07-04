@@ -4,7 +4,7 @@ from typing import Any, ClassVar
 from mcp import ClientSession
 from pydantic import BaseModel
 
-from gemini_cli_core.tools.base.tool_base import BaseTool, ToolResult
+from gemini_cli_core.tools import BaseTool, ToolResult
 from gemini_cli_core.tools.common import (
     ToolCallConfirmationDetails,
     ToolMcpConfirmationDetails,

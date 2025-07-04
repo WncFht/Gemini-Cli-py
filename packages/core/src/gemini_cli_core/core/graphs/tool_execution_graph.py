@@ -26,7 +26,7 @@ from gemini_cli_core.core.nodes.tool_nodes import (
     WaitingToolCall,
 )
 from gemini_cli_core.core.types import ApprovalMode
-from gemini_cli_core.tools.base.registry import ToolRegistry
+from gemini_cli_core.tools import ToolRegistry, ToolResult
 
 if TYPE_CHECKING:
     from gemini_cli_core.tools.base.tool_base import ToolResult

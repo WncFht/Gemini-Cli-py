@@ -5,9 +5,10 @@ import subprocess
 from typing import Any
 
 from gemini_cli_core.core.config import Config
-from gemini_cli_core.tools.base.tool_base import BaseTool, Tool, ToolResult
 from gemini_cli_core.tools.mcp.mcp_client import discover_mcp_tools
 from gemini_cli_core.tools.mcp.mcp_tool import DiscoveredMCPTool
+
+from .tool_base import BaseTool, Tool, ToolResult
 
 logger = logging.getLogger(__name__)
 

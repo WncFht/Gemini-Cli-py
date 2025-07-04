@@ -1,3 +1,4 @@
+from .app import GeminiClient
 from .config import (
     DEFAULT_EMBEDDING_MODEL,
     DEFAULT_GEMINI_FLASH_MODEL,
@@ -56,6 +57,8 @@ __all__ = [
     "EventCollector",
     # Events
     "EventEmitter",
+    # App
+    "GeminiClient",
     "GeminiError",
     # Types
     "GeminiEventType",

@@ -6,11 +6,7 @@ from pydantic import BaseModel, Field
 
 from gemini_cli_core.core.config import Config
 from gemini_cli_core.core.types import ApprovalMode
-from gemini_cli_core.tools.base.modifiable_tool import (
-    ModifiableTool,
-    ModifyContext,
-)
-from gemini_cli_core.tools.base.tool_base import BaseTool, ToolResult
+from gemini_cli_core.tools import BaseTool, ToolResult
 from gemini_cli_core.tools.common import (
     ToolCallConfirmationDetails,
     ToolEditConfirmationDetails,
@@ -21,6 +17,11 @@ from gemini_cli_core.utils.paths import (
     is_within_root,
     make_relative,
     shorten_path,
+)
+
+from ..base.modifiable_tool import (
+    ModifiableTool,
+    ModifyContext,
 )
 
 
