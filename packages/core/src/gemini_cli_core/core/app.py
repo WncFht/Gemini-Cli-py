@@ -563,3 +563,25 @@ class GeminiClient:
             return None
 
         return parts[0].get("text")
+
+    async def chat_stream(self, messages: list[Content]):
+        """Runs the conversation graph and streams events."""
+        if not self.conversation_graph:
+            raise RuntimeError(
+                "Graph not initialized. Call create_graph() first."
+            )
+
+        initial_state = {"messages": messages}
+        async for event in self.conversation_graph.astream(initial_state):
+            yield event
+
+    async def resume_with_tool_confirmation(self, call_id: str, outcome: str):
+        """
+        Resumes a graph that was interrupted waiting for tool confirmation.
+        """
+        if not self.conversation_graph:
+            raise RuntimeError("Cannot resume, no graph instance found.")
+
+        # TODO: Implement the actual logic to find the interrupted state
+        # and resume the graph with the new information.
+        print(f"Resuming graph for tool call {call_id} with outcome: {outcome}")

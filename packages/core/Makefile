@@ -46,8 +46,8 @@ clean:
 
 # 运行开发服务器
 run:
-	uv run python -m gemini_cli --debug
+	uv run uvicorn gemini_cli_core.server:app --reload
 
 # 运行生产服务器
 run-prod:
-	uv run python -m gemini_cli --host 0.0.0.0 --port 8000 
+	uv run uvicorn gemini_cli_core.server:app --host 0.0.0.0 --port 8000 
