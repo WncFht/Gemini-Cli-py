@@ -3,10 +3,12 @@
 # 安装依赖
 install:
 	uv sync
+	uv pip install -e . --no-deps
 
 # 安装开发依赖
 dev:
 	uv sync --all-extras
+	uv pip install -e . --no-deps
 
 # 运行测试
 test:
