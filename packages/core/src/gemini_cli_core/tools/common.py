@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Literal, Union
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -60,9 +60,9 @@ class ToolInfoConfirmationDetails(BaseModel):
 
 # A discriminated union of all possible tool call confirmation detail types.
 # Corresponds to the `ToolCallConfirmationDetails` union type in tools.ts.
-ToolCallConfirmationDetails = Union[
-    ToolEditConfirmationDetails,
-    ToolExecuteConfirmationDetails,
-    ToolMcpConfirmationDetails,
-    ToolInfoConfirmationDetails,
-]
+ToolCallConfirmationDetails = (
+    ToolEditConfirmationDetails
+    | ToolExecuteConfirmationDetails
+    | ToolMcpConfirmationDetails
+    | ToolInfoConfirmationDetails
+)
