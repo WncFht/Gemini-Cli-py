@@ -1,8 +1,9 @@
 import os
 import pathlib
 from collections.abc import Callable
-from dataclasses import dataclass, field
 from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from .types import (
     AccessibilitySettings,
@@ -23,15 +24,16 @@ GEMINI_CONFIG_DIR = ".gemini"
 SETTINGS_DIRECTORY_NAME = ".gemini"
 
 
-@dataclass
-class Config:
+class Config(BaseModel):
     """完整的配置定义 - 与TypeScript Config类对应"""
+
+    model_config = ConfigDict(extra="ignore", arbitrary_types_allowed=True)
 
     # 核心配置
     session_id: str
     model: str = DEFAULT_GEMINI_MODEL
     embedding_model: str = DEFAULT_EMBEDDING_MODEL
-    target_dir: str = field(default_factory=os.getcwd)
+    target_dir: str = Field(default_factory=os.getcwd)
     debug_mode: bool = False
 
     # 工具配置
@@ -41,27 +43,27 @@ class Config:
     tool_call_command: str | None = None
 
     # MCP配置
-    mcp_servers: dict[str, MCPServerConfig] = field(default_factory=dict)
+    mcp_servers: dict[str, MCPServerConfig] = Field(default_factory=dict)
     mcp_server_command: str | None = None
 
     # 用户界面
     approval_mode: ApprovalMode = ApprovalMode.DEFAULT
     show_memory_usage: bool = False
-    accessibility: AccessibilitySettings = field(
+    accessibility: AccessibilitySettings = Field(
         default_factory=AccessibilitySettings
     )
 
     # 文件处理
-    file_filtering: dict[str, bool] = field(
+    file_filtering: dict[str, bool] = Field(
         default_factory=lambda: {
             "respect_git_ignore": True,
             "enable_recursive_file_search": True,
-        },
+        }
     )
     context_file_name: str | list[str] | None = None
 
     # 遥测
-    telemetry: TelemetrySettings = field(default_factory=TelemetrySettings)
+    telemetry: TelemetrySettings = Field(default_factory=TelemetrySettings)
     usage_statistics_enabled: bool = True
 
     # 其他配置
@@ -71,7 +73,7 @@ class Config:
     proxy: str | None = None
     sandbox: SandboxConfig | None = None
     bug_command: BugCommandSettings | None = None
-    extension_context_file_paths: list[str] = field(default_factory=list)
+    extension_context_file_paths: list[str] = Field(default_factory=list)
 
     # 运行时状态
     user_memory: str = ""
@@ -80,19 +82,19 @@ class Config:
     flash_fallback_handler: Callable[[str, str], bool] | None = None
 
     # 工作目录
-    cwd: str = field(default_factory=os.getcwd)
+    cwd: str = Field(default_factory=os.getcwd)
 
-    # 私有属性 - 使用post_init初始化
-    _tool_registry: Any | None = field(default=None, init=False)
-    _gemini_client: Any | None = field(default=None, init=False)
-    _content_generator_config: Any | None = field(default=None, init=False)
-    _file_discovery_service: Any | None = field(default=None, init=False)
-    _git_service: Any | None = field(default=None, init=False)
+    # 私有属性
+    _tool_registry: Any | None = None
+    _gemini_client: Any | None = None
+    _content_generator_config: Any | None = None
+    _file_discovery_service: Any | None = None
+    _git_service: Any | None = None
 
-    def __post_init__(self) -> None:
+    def model_post_init(self, __context: Any) -> None:
         """初始化后处理"""
         # 确保target_dir是绝对路径
-        self.target_dir = pathlib.Path(self.target_dir).resolve()
+        self.target_dir = str(pathlib.Path(self.target_dir).resolve())
 
         # 设置GEMINI_MD文件名
         if self.context_file_name:
