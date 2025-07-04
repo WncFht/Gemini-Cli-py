@@ -1,9 +1,8 @@
-from typing import Literal, Union
+from typing import Any, Literal, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from gemini_cli_core.api.events import ToolCallRequestInfo, ToolCallResponseInfo
-from gemini_cli_core.tools.base.tool_base import Tool
 from gemini_cli_core.tools.common import (
     ToolCallConfirmationDetails,
     ToolConfirmationOutcome,
@@ -13,8 +12,12 @@ from gemini_cli_core.tools.common import (
 class BaseToolCall(BaseModel):
     """Base model for a tool call, containing common fields."""
 
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     request: ToolCallRequestInfo
-    tool: Tool
+    # Use `Any` here because `Tool` is a Protocol, which Pydantic v2 has trouble
+    # creating a validator for at runtime. We rely on static type checking instead.
+    tool: Any
     start_time: float | None = None
     outcome: ToolConfirmationOutcome | None = None
 
@@ -58,9 +61,11 @@ class ErroredToolCall(BaseModel):
 class SuccessfulToolCall(BaseModel):
     """Status: success. A terminal state."""
 
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     status: Literal["success"] = "success"
     request: ToolCallRequestInfo
-    tool: Tool
+    tool: Any
     response: ToolCallResponseInfo
     duration_ms: float | None = None
     outcome: ToolConfirmationOutcome | None = None
@@ -69,9 +74,11 @@ class SuccessfulToolCall(BaseModel):
 class CancelledToolCall(BaseModel):
     """Status: cancelled. A terminal state."""
 
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     status: Literal["cancelled"] = "cancelled"
     request: ToolCallRequestInfo
-    tool: Tool
+    tool: Any
     response: ToolCallResponseInfo
     duration_ms: float | None = None
     outcome: ToolConfirmationOutcome | None = None

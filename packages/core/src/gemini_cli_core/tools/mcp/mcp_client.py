@@ -1,20 +1,21 @@
+from __future__ import annotations
+
 import asyncio
 import logging
 import re
 from collections.abc import Callable
 from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from mcp import ClientSession
-from mcp.client.stdio import (
-    StdioServerParameters,
-    stdio_client,
-)
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
 from mcp.client.streamable_http import streamablehttp_client
 
-from gemini_cli_core.core.types import MCPServerConfig
-from gemini_cli_core.tools.base.registry import ToolRegistry
 from gemini_cli_core.tools.mcp.mcp_tool import DiscoveredMCPTool
+
+if TYPE_CHECKING:
+    from gemini_cli_core.core.types import MCPServerConfig
+    from gemini_cli_core.tools.base.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
 MCP_DEFAULT_TIMEOUT_MSEC = 10 * 60 * 1000  # Python SDK uses seconds

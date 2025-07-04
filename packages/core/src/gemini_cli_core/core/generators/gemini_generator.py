@@ -2,7 +2,7 @@ import os
 from collections.abc import AsyncGenerator
 from typing import Any
 
-from google import generativeai as genai
+import google.generativeai as genai
 from vertexai.generative_models import GenerativeModel as VertexGenerativeModel
 
 from gemini_cli_core.core.config import DEFAULT_GEMINI_MODEL
@@ -13,9 +13,6 @@ from gemini_cli_core.core.generators.base import (
 )
 from gemini_cli_core.core.types import GeminiError
 from gemini_cli_core.utils.model_check import get_effective_model
-
-from .base import ContentGenerator, ContentGeneratorConfig
-from .code_assist_generator import CodeAssistContentGenerator
 
 
 class GeminiContentGenerator(ContentGenerator):

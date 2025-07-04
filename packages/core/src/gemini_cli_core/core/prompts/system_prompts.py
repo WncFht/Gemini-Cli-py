@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 
-from gemini_cli_core.tools.edit import EditTool
+from gemini_cli_core.tools.file.edit_file import EditTool
 from gemini_cli_core.tools.file.glob import GlobTool
 from gemini_cli_core.tools.file.grep import GrepTool
 from gemini_cli_core.tools.file.list_files import LSTool

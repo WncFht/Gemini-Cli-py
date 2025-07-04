@@ -4,13 +4,6 @@ import logging
 import uuid
 from collections.abc import AsyncGenerator
 from datetime import datetime
-from types import (
-    ChatCompressionInfo,
-    Content,
-    GeminiError,
-    GeminiEventType,
-    Part,
-)
 from typing import Any
 
 from gemini_cli_core.core.cancellation import CancelSignal
@@ -23,7 +16,6 @@ from gemini_cli_core.core.nodes.tool_nodes import (
 from gemini_cli_core.tools.common import ToolConfirmationOutcome
 from gemini_cli_core.utils.errors import get_error_message, report_error
 from gemini_cli_core.utils.retry import retry_with_backoff
-from gemini_cli_core.utils.token_limits import token_limit
 
 from .config import Config
 from .events import EventEmitter, ServerGeminiStreamEvent
@@ -38,7 +30,15 @@ from .graphs.tool_execution_graph import (
     create_error_response,
     create_tool_execution_graph,
 )
-from .prompts import get_core_system_prompt
+from .prompts.system_prompts import get_core_system_prompt
+from .token_limits import token_limit
+from .types import (
+    ChatCompressionInfo,
+    Content,
+    GeminiError,
+    GeminiEventType,
+    Part,
+)
 
 logger = logging.getLogger(__name__)
 

@@ -1,10 +1,11 @@
 import asyncio
 import time
 from functools import partial
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from langgraph.checkpoint.memory import MemorySaver
-from langgraph.graph import END, CompiledGraph, StateGraph
+from langgraph.graph import END, StateGraph
+from langgraph.pregel import Pregel
 
 from gemini_cli_core.api.events import (
     ServerGeminiToolCallConfirmationEvent,
@@ -25,7 +26,10 @@ from gemini_cli_core.core.nodes.tool_nodes import (
     WaitingToolCall,
 )
 from gemini_cli_core.core.types import ApprovalMode
-from gemini_cli_core.tools.base import ToolRegistry, ToolResult
+from gemini_cli_core.tools.base.registry import ToolRegistry
+
+if TYPE_CHECKING:
+    from gemini_cli_core.tools.base.tool_base import ToolResult
 
 
 class ToolNodeContext:
@@ -273,7 +277,7 @@ def should_wait_for_approval(state: ToolExecutionState) -> str:
 
 def create_tool_execution_graph(
     config: Config, emitter: EventEmitter, tool_registry: ToolRegistry
-) -> CompiledGraph:
+) -> Pregel:
     """
     Creates the tool execution graph.
     """

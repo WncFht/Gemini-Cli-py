@@ -1,12 +1,13 @@
 import difflib
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Generic, Protocol, TypeVar
 
 from pydantic import BaseModel
 
-from ..utils.editor import EditorType, open_diff
-from .base.tool_base import Tool
-from .file.diff_options import DEFAULT_DIFF_CONTEXT_LINES
+from gemini_cli_core.tools.base.tool_base import Tool
+from gemini_cli_core.tools.file.diff_options import DEFAULT_DIFF_CONTEXT_LINES
+from gemini_cli_core.utils.editor import EditorType, open_diff
 
 TParams = TypeVar("TParams", bound=BaseModel)
 
@@ -16,10 +17,10 @@ class ModifyContext(BaseModel, Generic[TParams]):
     Context required to allow a tool's parameters to be modified in an editor.
     """
 
-    get_file_path: callable[[TParams], str]
-    get_current_content: callable[[TParams], str]
-    get_proposed_content: callable[[TParams], str]
-    create_updated_params: callable[[str, str, TParams], TParams]
+    get_file_path: Callable[[TParams], str]
+    get_current_content: Callable[[TParams], str]
+    get_proposed_content: Callable[[TParams], str]
+    create_updated_params: Callable[[str, str, TParams], TParams]
 
     class Config:
         arbitrary_types_allowed = True
@@ -44,7 +45,7 @@ class ModifyResult(BaseModel, Generic[TParams]):
 
 def is_modifiable_tool(tool: Tool) -> bool:
     """Type guard to check if a tool is modifiable."""
-    return hasattr(tool, "get_modify_context") and callable(
+    return hasattr(tool, "get_modify_context") and Callable(
         tool.get_modify_context
     )
 

@@ -1,4 +1,5 @@
 import os
+import pathlib
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -91,7 +92,7 @@ class Config:
     def __post_init__(self) -> None:
         """初始化后处理"""
         # 确保target_dir是绝对路径
-        self.target_dir = os.path.abspath(self.target_dir)
+        self.target_dir = pathlib.Path(self.target_dir).resolve()
 
         # 设置GEMINI_MD文件名
         if self.context_file_name:
@@ -151,11 +152,11 @@ class Config:
 
     def get_gemini_dir(self) -> str:
         """获取Gemini配置目录"""
-        return os.path.join(self.target_dir, GEMINI_CONFIG_DIR)
+        return str(pathlib.Path(self.target_dir) / GEMINI_CONFIG_DIR)
 
     def get_project_temp_dir(self) -> str:
         """获取项目临时目录"""
-        return os.path.join(self.target_dir, ".tmp")
+        return str(pathlib.Path(self.target_dir) / ".tmp")
 
     # Tool Configuration
     def get_core_tools(self) -> list[str] | None:
@@ -177,9 +178,9 @@ class Config:
     async def get_tool_registry(self) -> Any:
         """获取工具注册表 - 延迟加载"""
         if not self._tool_registry:
-            from gemini_cli_core.tools.tool_registry import create_tool_registry
+            from gemini_cli_core.tools.base.registry import ToolRegistry
 
-            self._tool_registry = await create_tool_registry(self)
+            self._tool_registry = ToolRegistry(self)
         return self._tool_registry
 
     # MCP Configuration

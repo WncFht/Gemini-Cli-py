@@ -8,7 +8,7 @@ from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
-from gemini_cli_core.core.app import GeminiApp
+from gemini_cli_core.core.app import GeminiClient
 from gemini_cli_core.core.config import Config
 
 app = FastAPI(
@@ -19,26 +19,26 @@ app = FastAPI(
 
 
 class SessionManager:
-    """Manages active GeminiApp sessions."""
+    """Manages active GeminiClient sessions."""
 
     def __init__(self):
-        self._sessions: dict[str, GeminiApp] = {}
+        self._sessions: dict[str, GeminiClient] = {}
         self._graphs: dict[str, object] = {}  # To hold and cleanup graphs
 
     async def create_session(self, raw_config: dict) -> str:
         """
-        Creates a new session with a GeminiApp instance and returns its ID.
+        Creates a new session with a GeminiClient instance and returns its ID.
         """
         session_id = str(uuid.uuid4())
         # TODO: The config object might need more sophisticated creation logic
         # depending on what the CLI sends.
         config = Config(**raw_config)
-        app_instance = GeminiApp(config)
+        app_instance = GeminiClient(config)
         await app_instance.initialize()
         self._sessions[session_id] = app_instance
         return session_id
 
-    def get_session(self, session_id: str) -> GeminiApp | None:
+    def get_session(self, session_id: str) -> GeminiClient | None:
         """Retrieves a session by its ID."""
         return self._sessions.get(session_id)
 
@@ -127,7 +127,7 @@ async def tool_confirm(request: ToolConfirmationRequest):
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    # This method will need to be implemented in GeminiApp
+    # This method will need to be implemented in GeminiClient
     await session.resume_with_tool_confirmation(
         request.call_id, request.outcome
     )
@@ -163,7 +163,7 @@ async def chat(request: ChatRequest):
     async def event_generator() -> AsyncGenerator[dict[str, Any], None]:
         """The generator for SSE events."""
         try:
-            # The chat_stream method in GeminiApp yields events.
+            # The chat_stream method in GeminiClient yields events.
             # We just need to format them for SSE.
             async for event in session.chat_stream(request.messages):
                 # LangGraph events can be complex objects with non-serializable parts.

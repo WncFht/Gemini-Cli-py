@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from typing import Any, Generic, Protocol, TypeVar
 
 from pydantic import BaseModel
@@ -56,7 +57,7 @@ class Tool(Protocol[TParams, TResult]):
         self,
         params: TParams,
         signal: Any | None = None,
-        update_output: callable | None = None,
+        update_output: Callable | None = None,
     ) -> TResult: ...
 
 
@@ -111,7 +112,7 @@ class BaseTool(ABC, Generic[TParams, TResult]):
         self,
         params: TParams,
         signal: Any | None = None,
-        update_output: callable | None = None,
+        update_output: Callable | None = None,
     ) -> TResult:
         """Abstract method for the core tool logic."""
         raise NotImplementedError

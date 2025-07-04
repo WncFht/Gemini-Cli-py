@@ -1,19 +1,23 @@
+from __future__ import annotations
+
 import logging
 import re
 from collections import OrderedDict
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
 
-from gemini_cli_core.core.app import GeminiClient
-from gemini_cli_core.tools.file.edit_file import EditToolParams
+if TYPE_CHECKING:
+    from gemini_cli_core.core.app import GeminiClient
+    from gemini_cli_core.tools.file.edit_file import EditToolParams
+
 
 logger = logging.getLogger(__name__)
 
 # --- Caches ---
 MAX_CACHE_SIZE = 50
-edit_correction_cache: "OrderedDict[str, CorrectedEditResult]" = OrderedDict()
-file_content_correction_cache: "OrderedDict[str, str]" = OrderedDict()
+edit_correction_cache: OrderedDict[str, CorrectedEditResult] = OrderedDict()
+file_content_correction_cache: OrderedDict[str, str] = OrderedDict()
 
 
 def _get_from_cache(cache: OrderedDict, key: str) -> Any:

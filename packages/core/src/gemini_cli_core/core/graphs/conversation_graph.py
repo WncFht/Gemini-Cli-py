@@ -6,7 +6,7 @@ from typing import Any
 
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
-from langgraph.graph.graph import CompiledGraph
+from langgraph.pregel import Pregel
 
 from gemini_cli_core.core.cancellation import CancelSignal
 from gemini_cli_core.core.config import Config
@@ -250,7 +250,7 @@ class EventAwareGraph:
 
     def __init__(
         self,
-        graph: CompiledGraph,
+        graph: Pregel,
         emitter: EventEmitter,
         context: ChatNodeContext,
     ):

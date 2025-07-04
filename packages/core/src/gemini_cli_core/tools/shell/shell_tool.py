@@ -1,6 +1,7 @@
 import asyncio
 import os
 import shlex
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -86,7 +87,7 @@ class ShellTool(BaseTool[ShellToolParams, ToolResult]):
         self,
         params: ShellToolParams,
         signal: Any | None = None,
-        update_output: callable | None = None,
+        update_output: Callable | None = None,
     ) -> ToolResult:
         validation_error = self.validate_tool_params(params)
         if validation_error:
