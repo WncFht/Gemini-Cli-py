@@ -21,6 +21,7 @@ class FolderInfo(BaseModel):
     sub_folders: list["FolderInfo"] = []
     has_more_files: bool = False
     has_more_subfolders: bool = False
+    is_ignored: bool = False
 
 
 async def _read_full_structure(
@@ -31,84 +32,112 @@ async def _read_full_structure(
 ) -> FolderInfo | None:
     root_node = FolderInfo(name=root_path.name, path=root_path)
     queue = [(root_node, root_path)]
-    item_count = 0
+    item_count = 1  # Start with 1 for the root directory itself
+    processed_paths = set()
 
     while queue:
         folder_info, current_path = queue.pop(0)
-        if item_count >= max_items:
-            # Mark parent as having more, but don't process this one
+
+        if current_path in processed_paths:
+            continue
+        processed_paths.add(current_path)
+
+        if item_count >= max_items and folder_info != root_node:
             continue
 
         try:
             entries = await aiofiles.os.scandir(current_path)
             sorted_entries = sorted(entries, key=lambda e: e.name)
+        except (OSError, PermissionError) as e:
+            if current_path == root_path:
+                return None  # Cannot read root
+            print(f"Warning: Could not read directory {current_path}: {e}")
+            continue
 
-            # Process files first
-            for entry in sorted_entries:
+        files_in_dir = []
+        subfolders_in_dir = []
+
+        # Process files
+        for entry in sorted_entries:
+            if entry.is_file():
                 if item_count >= max_items:
                     folder_info.has_more_files = True
                     break
-                if entry.is_file() and not file_service.should_git_ignore_file(
-                    entry.path
-                ):
-                    folder_info.files.append(entry.name)
+                if not file_service.should_git_ignore_file(entry.path):
+                    files_in_dir.append(entry.name)
                     item_count += 1
+        folder_info.files = files_in_dir
 
-            # Process directories
-            for entry in sorted_entries:
+        # Process directories
+        for entry in sorted_entries:
+            if entry.is_dir():
                 if item_count >= max_items:
                     folder_info.has_more_subfolders = True
                     break
-                if (
-                    entry.is_dir()
-                    and entry.name not in ignored_folders
-                    and not file_service.should_git_ignore_file(entry.path)
-                ):
-                    sub_folder_info = FolderInfo(
-                        name=entry.name, path=Path(entry.path)
-                    )
-                    folder_info.sub_folders.append(sub_folder_info)
-                    queue.append((sub_folder_info, Path(entry.path)))
-                    item_count += 1
 
-        except (OSError, PermissionError):
-            continue
+                is_git_ignored = file_service.should_git_ignore_file(entry.path)
+                is_explicitly_ignored = entry.name in ignored_folders
+
+                sub_folder_info = FolderInfo(
+                    name=entry.name,
+                    path=Path(entry.path),
+                    is_ignored=(is_git_ignored or is_explicitly_ignored),
+                )
+                subfolders_in_dir.append(sub_folder_info)
+                item_count += 1
+
+                if not sub_folder_info.is_ignored:
+                    queue.append((sub_folder_info, Path(entry.path)))
+        folder_info.sub_folders = subfolders_in_dir
 
     return root_node
 
 
-def _format_structure(
-    node: FolderInfo, indent: str = "", is_last: bool = True
-) -> str:
-    lines = []
+def _format_structure_recursive(
+    node: FolderInfo,
+    builder: list[str],
+    indent: str,
+    is_last: bool,
+    is_root: bool = False,
+):
     connector = "└───" if is_last else "├───"
-    lines.append(f"{indent}{connector}{node.name}/")
+    if not is_root:
+        line = f"{indent}{connector}{node.name}/"
+        if node.is_ignored:
+            line += TRUNCATION_INDICATOR
+        builder.append(line)
 
     child_indent = indent + ("    " if is_last else "│   ")
+    if is_root:
+        child_indent = ""
 
-    all_children = node.files + node.sub_folders
-    total_children = len(all_children)
+    children = node.files + node.sub_folders
+    total_children = len(children)
 
+    # Format files
     for i, file_name in enumerate(node.files):
-        is_last_item = i == total_children - 1 and not node.has_more_subfolders
+        is_last_item = (i == len(node.files) - 1) and not (
+            node.sub_folders or node.has_more_subfolders
+        )
         file_connector = "└───" if is_last_item else "├───"
-        lines.append(f"{child_indent}{file_connector}{file_name}")
+        builder.append(f"{child_indent}{file_connector}{file_name}")
 
     if node.has_more_files:
-        is_last_item = not node.sub_folders and not node.has_more_subfolders
+        is_last_item = not (node.sub_folders or node.has_more_subfolders)
         file_connector = "└───" if is_last_item else "├───"
-        lines.append(f"{child_indent}{file_connector}{TRUNCATION_INDICATOR}")
+        builder.append(f"{child_indent}{file_connector}{TRUNCATION_INDICATOR}")
 
+    # Format subfolders
     for i, sub_folder in enumerate(node.sub_folders):
         is_last_item = (
-            i == len(node.sub_folders) - 1 and not node.has_more_subfolders
+            i == len(node.sub_folders) - 1
+        ) and not node.has_more_subfolders
+        _format_structure_recursive(
+            sub_folder, builder, child_indent, is_last_item
         )
-        lines.append(_format_structure(sub_folder, child_indent, is_last_item))
 
     if node.has_more_subfolders:
-        lines.append(f"{child_indent}└───{TRUNCATION_INDICATOR}")
-
-    return "\n".join(lines)
+        builder.append(f"{child_indent}└───{TRUNCATION_INDICATOR}")
 
 
 async def get_folder_structure(
@@ -124,20 +153,38 @@ async def get_folder_structure(
         if not structure_root:
             return f"Error: Could not read directory '{resolved_path}'."
 
-        # Recreate the formatting logic from the TS version
-        formatted_lines = []
-        for i, f in enumerate(structure_root.files):
-            is_last = (
-                i == len(structure_root.files) - 1
-            ) and not structure_root.sub_folders
-            formatted_lines.append(f"{'└───' if is_last else '├───'}{f}")
+        structure_lines = []
+        _format_structure_recursive(
+            structure_root, structure_lines, "", True, is_root=True
+        )
 
-        for i, d in enumerate(structure_root.sub_folders):
-            is_last = i == len(structure_root.sub_folders) - 1
-            formatted_lines.append(_format_structure(d, "", is_last))
+        truncation_occurred = False
 
-        summary = f"Showing up to {MAX_ITEMS} items. "
-        return f"{summary}\n\n{resolved_path}/\n" + "\n".join(formatted_lines)
+        def check_truncation(node: FolderInfo):
+            nonlocal truncation_occurred
+            if (
+                node.has_more_files
+                or node.has_more_subfolders
+                or node.is_ignored
+            ):
+                truncation_occurred = True
+                return
+            for sub in node.sub_folders:
+                check_truncation(sub)
+
+        check_truncation(structure_root)
+        disclaimer = ""
+        if truncation_occurred:
+            disclaimer = f"Folders or files indicated with {TRUNCATION_INDICATOR} contain more items not shown, were ignored, or the display limit ({MAX_ITEMS} items) was reached."
+
+        summary = (
+            f"Showing up to {MAX_ITEMS} items (files + folders). {disclaimer}"
+        ).strip()
+
+        output = f"{summary}\n\n{resolved_path.as_posix()}/\n" + "\n".join(
+            structure_lines
+        )
+        return output
 
     except Exception as e:
         return f"Error processing directory '{resolved_path}': {e}"

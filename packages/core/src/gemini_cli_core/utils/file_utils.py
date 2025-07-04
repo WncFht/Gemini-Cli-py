@@ -90,6 +90,8 @@ class ProcessedFileReadResult(BaseModel):
     return_display: str
     error: str | None = None
     is_truncated: bool = False
+    original_line_count: int | None = None
+    lines_shown: tuple[int, int] | None = None
 
 
 async def process_single_file_content(
@@ -145,25 +147,43 @@ async def process_single_file_content(
         ) as f:
             lines = await f.readlines()
 
-        total_lines = len(lines)
+        original_line_count = len(lines)
         limit = limit or DEFAULT_MAX_LINES_TEXT_FILE
-        end = min(offset + limit, total_lines)
-        selected_lines = lines[offset:end]
+        # Ensure selected_lines doesn't try to slice beyond array bounds
+        actual_start_line = min(offset, original_line_count)
+        end_line = min(actual_start_line + limit, original_line_count)
+        selected_lines = lines[actual_start_line:end_line]
 
-        # Truncate long lines
-        formatted_lines = [
-            (
-                line[:MAX_LINE_LENGTH_TEXT_FILE] + "... [truncated]\n"
-                if len(line) > MAX_LINE_LENGTH_TEXT_FILE
-                else line
-            )
-            for line in selected_lines
-        ]
-        content = "".join(formatted_lines)
+        lines_were_truncated_in_length = False
+        formatted_lines = []
+        for line in selected_lines:
+            if len(line) > MAX_LINE_LENGTH_TEXT_FILE:
+                lines_were_truncated_in_length = True
+                formatted_lines.append(
+                    line[:MAX_LINE_LENGTH_TEXT_FILE] + "... [truncated]\n"
+                )
+            else:
+                formatted_lines.append(line)
+
+        content_range_truncated = end_line < original_line_count
+        is_truncated = content_range_truncated or lines_were_truncated_in_length
+        llm_text_content = ""
+        if content_range_truncated:
+            llm_text_content += f"[File content truncated: showing lines {actual_start_line + 1}-{end_line} of {original_line_count} total lines. Use offset/limit parameters to view more.]\n"
+        elif lines_were_truncated_in_length:
+            llm_text_content += f"[File content partially truncated: some lines exceeded maximum length of {MAX_LINE_LENGTH_TEXT_FILE} characters.]\n"
+
+        llm_text_content += "".join(formatted_lines)
+        display_message = f"Read lines {actual_start_line + 1}-{end_line} of {original_line_count} from {file_path.name}"
+        if is_truncated:
+            display_message += " (truncated)"
 
         return ProcessedFileReadResult(
-            llm_content=content,
-            return_display=f"Read lines {offset + 1}-{end} of {total_lines} from {file_path.name}",
+            llm_content=llm_text_content,
+            return_display=display_message,
+            is_truncated=is_truncated,
+            original_line_count=original_line_count,
+            lines_shown=(actual_start_line + 1, end_line),
         )
 
     except Exception as e:

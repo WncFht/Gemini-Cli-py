@@ -10,7 +10,10 @@ from typing import Any
 
 import aiofiles
 
-from gemini_cli_core.tools.memory.memory_tool import DEFAULT_CONTEXT_FILENAME
+from gemini_cli_core.tools.memory.memory_tool import (
+    DEFAULT_CONTEXT_FILENAME,
+    get_global_memory_file_path,
+)
 
 from .file_utils import bfs_file_search
 from .git_utils import find_git_root
@@ -29,7 +32,10 @@ class ImportState:
 
 
 async def process_imports(
-    content: str, base_path: Path, state: ImportState | None = None
+    content: str,
+    base_path: Path,
+    project_root: Path,
+    state: ImportState | None = None,
 ) -> str:
     """Recursively processes @-imports in memory files."""
     state = state or ImportState()
@@ -42,6 +48,15 @@ async def process_imports(
     async def replace_match(match: re.Match) -> str:
         import_path_str = match.group(1)
         full_path = (base_path / import_path_str).resolve()
+
+        # Security check: Ensure the path is within the project root
+        try:
+            full_path.relative_to(project_root)
+        except ValueError:
+            logger.warning(
+                f"Import path '{import_path_str}' is outside the project root. Aborting import."
+            )
+            return f"<!-- Import failed: {import_path_str} - Path is outside of project boundaries -->"
 
         if full_path in state.processed_files:
             logger.warning(f"Circular import detected and skipped: {full_path}")
@@ -56,7 +71,7 @@ async def process_imports(
             new_state.current_depth = state.current_depth + 1
 
             processed_import = await process_imports(
-                imported_content, full_path.parent, new_state
+                imported_content, full_path.parent, project_root, new_state
             )
             return f"<!-- Imported from: {import_path_str} -->\n{processed_import}\n<!-- End import -->"
         except FileNotFoundError:
@@ -79,6 +94,11 @@ async def _get_gemini_md_file_paths(cwd: Path, file_service) -> list[Path]:
     """Finds all GEMINI.md files in the hierarchy."""
     all_paths: set[Path] = set()
     project_root = find_git_root(cwd) or cwd
+
+    # Add global memory file first
+    global_memory_path = get_global_memory_file_path()
+    if global_memory_path.is_file():
+        all_paths.add(global_memory_path)
 
     # Upward search
     current = cwd
@@ -107,6 +127,7 @@ async def load_server_hierarchical_memory(
     cwd: Path, file_service
 ) -> dict[str, Any]:
     """Loads and concatenates hierarchical memory files."""
+    project_root = find_git_root(cwd) or cwd
     file_paths = await _get_gemini_md_file_paths(cwd, file_service)
     if not file_paths:
         return {"memory_content": "", "file_count": 0}
@@ -116,9 +137,17 @@ async def load_server_hierarchical_memory(
         try:
             async with aiofiles.open(p, encoding="utf-8") as f:
                 content = await f.read()
-            processed_content = await process_imports(content, p.parent)
+            processed_content = await process_imports(
+                content, p.parent, project_root
+            )
 
-            relative_path = p.relative_to(cwd)
+            try:
+                relative_path = p.relative_to(cwd)
+            except ValueError:
+                relative_path = (
+                    p.name
+                )  # Fallback for global memory files outside cwd
+
             contents.append(
                 f"--- Context from: {relative_path} ---\n{processed_content}\n--- End Context ---"
             )

@@ -9,8 +9,8 @@ from collections.abc import AsyncGenerator
 from typing import Any
 
 from google import generativeai as genai
-from vertexai.generative_models import GenerativeModel as VertexGenerativeModel
 from google.cloud import aiplatform
+from vertexai.generative_models import GenerativeModel as VertexGenerativeModel
 
 from gemini_cli_core.core.config import DEFAULT_GEMINI_MODEL
 from gemini_cli_core.core.generators.base import (
@@ -392,7 +392,9 @@ async def create_content_generator(
             model_instance = VertexGenerativeModel(config["model"])
             return VertexAIContentGenerator(model_instance, config)
         except Exception as e:
-            raise GeminiError(f"创建 Vertex AI contentGenerator 失败: {e}", "vertex_ai_error")
+            raise GeminiError(
+                f"创建 Vertex AI contentGenerator 失败: {e}", "vertex_ai_error"
+            )
 
     # 对于 Gemini API Key
     if config.get("auth_type") == AuthType.USE_GEMINI:

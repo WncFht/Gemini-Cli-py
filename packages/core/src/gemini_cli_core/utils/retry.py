@@ -7,8 +7,11 @@ import asyncio
 import logging
 import random
 from collections.abc import Awaitable, Callable
+from datetime import datetime
 from functools import wraps
 from typing import Any, TypeVar
+
+import httpx
 
 from .errors import report_error, to_friendly_error
 
@@ -90,6 +93,45 @@ def retry_with_backoff(
                     ):
                         break
 
+                    # Handle Retry-After header
+                    retry_after_seconds = 0
+                    if isinstance(e, httpx.HTTPStatusError):
+                        retry_after_header = e.response.headers.get(
+                            "retry-after"
+                        )
+                        if retry_after_header:
+                            try:
+                                retry_after_seconds = int(retry_after_header)
+                            except ValueError:
+                                # It might be an HTTP date, try to parse it
+                                try:
+                                    from email.utils import (
+                                        parsedate_to_datetime,
+                                    )
+
+                                    retry_after_date = parsedate_to_datetime(
+                                        retry_after_header
+                                    )
+                                    delay_delta = (
+                                        retry_after_date
+                                        - datetime.now(retry_after_date.tzinfo)
+                                    )
+                                    retry_after_seconds = max(
+                                        0, delay_delta.total_seconds()
+                                    )
+                                except (ImportError, TypeError, ValueError):
+                                    pass  # Failed to parse date
+
+                    if retry_after_seconds > 0:
+                        logger.warning(
+                            f"Attempt {attempt} failed for {fn.__name__}. "
+                            f"Honoring Retry-After header: waiting for {retry_after_seconds:.2f}s...",
+                        )
+                        await asyncio.sleep(retry_after_seconds)
+                        # Reset delay for next potential error that isn't a 429
+                        current_delay = initial_delay_ms
+                        continue
+
                     jitter = current_delay * 0.3 * (random.random() * 2 - 1)
                     delay_with_jitter = max(0, current_delay + jitter)
 
@@ -101,11 +143,18 @@ def retry_with_backoff(
                     await asyncio.sleep(delay_with_jitter / 1000)
                     current_delay = min(max_delay_ms, current_delay * 2)
 
-            await report_error(
-                last_error,
-                f"Function {fn.__name__} failed after {max_attempts} attempts.",
+            if last_error:
+                await report_error(
+                    last_error,
+                    f"Function {fn.__name__} failed after {max_attempts} attempts.",
+                )
+                raise last_error from None
+            # This part should be unreachable if max_attempts > 0, but as a safeguard:
+            final_error = Exception(
+                f"Function {fn.__name__} failed after {max_attempts} attempts."
             )
-            raise last_error from None
+            await report_error(final_error, "Retry attempts exhausted.")
+            raise final_error
 
         return wrapper
 

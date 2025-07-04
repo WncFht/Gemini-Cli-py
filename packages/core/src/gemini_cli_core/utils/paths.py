@@ -18,27 +18,40 @@ def tildeify_path(p: Path) -> str:
 
 
 def shorten_path(file_path: str, max_len: int = 35) -> str:
-    """Shortens a path string if it exceeds maxLen."""
+    """Shortens a path string if it exceeds maxLen, prioritizing start and end."""
     if len(file_path) <= max_len:
         return file_path
 
     p = Path(file_path)
-    parts = list(p.parts)
+    # On Windows, p.parts might include the drive letter twice, e.g., ('C:', '\\', 'Users', ...).
+    # We filter out the root/anchor to handle this gracefully.
+    parts = [part for part in p.parts if part != p.anchor and part != "\\"]
 
-    if len(parts) <= 2:
-        return file_path[-max_len:]
-
-    # Keep root, first, ..., last
-    # e.g., /a/b/c/d.txt -> /a/.../d.txt
-    start = parts[0]
-    end = parts[-1]
-
-    # +3 for "..."
-    if len(start) + len(end) + len(p.anchor) + 1 + 3 > max_len:
-        # Fallback for very long start/end parts
+    if len(parts) <= 2:  # e.g., ['Users', 'test.txt']
+        # Fallback to simple truncation from the beginning
         return f"...{file_path[-(max_len - 3) :]}"
 
-    return f"{p.parts[0]}{p.anchor}...{p.anchor}{p.parts[-1]}"
+    # Keep the first directory and the filename
+    first_dir = parts[0]
+    filename = parts[-1]
+    # Ellipsis and separators
+    ellipsis = "..."
+    separator = "/"  # Use forward slash for consistent display
+
+    # Keep adding parts from the end until we exceed max_len
+    end_parts = [filename]
+    current_len = (
+        len(first_dir) + len(ellipsis) + len(filename) + 2
+    )  # for separators
+
+    for i in range(len(parts) - 2, 0, -1):
+        part = parts[i]
+        if current_len + len(part) + 1 > max_len:
+            break
+        end_parts.insert(0, part)
+        current_len += len(part) + 1
+
+    return f"{first_dir}{separator}{ellipsis}{separator}{separator.join(end_parts)}"
 
 
 def make_relative(target_path: Path, root_directory: Path) -> str:
@@ -69,3 +82,13 @@ def is_within_root(path_to_check: Path, root_directory: Path) -> bool:
         return True
     except ValueError:
         return False
+
+
+def escape_path(file_path: str) -> str:
+    """Escapes spaces in a file path for shell commands."""
+    return file_path.replace(" ", "\\ ")
+
+
+def unescape_path(file_path: str) -> str:
+    """Unescapes spaces in a file path."""
+    return file_path.replace("\\ ", " ")
