@@ -1,7 +1,3 @@
-"""
-This file is refactored from packages/core_ts/src/tools/web-search.ts.
-"""
-
 from typing import Any
 
 from pydantic import BaseModel, Field

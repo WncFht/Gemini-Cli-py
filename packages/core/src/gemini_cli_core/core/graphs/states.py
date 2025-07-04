@@ -1,7 +1,3 @@
-"""
-LangGraph state definitions for Gemini CLI
-"""
-
 from typing import Any, Literal, TypedDict
 
 from gemini_cli_core.core.types import (

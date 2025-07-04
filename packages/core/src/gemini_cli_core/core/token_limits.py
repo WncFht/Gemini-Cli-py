@@ -1,7 +1,3 @@
-"""
-This file is refactored from packages/core_ts/src/core/tokenLimits.ts
-"""
-
 from gemini_cli_core.config.models import (
     DEFAULT_GEMINI_FLASH_MODEL,
     DEFAULT_GEMINI_PRO_MODEL,

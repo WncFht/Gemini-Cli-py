@@ -1,7 +1,3 @@
-"""
-LangGraph graphs for Gemini CLI
-"""
-
 from .states import (
     CheckpointState,
     CompressionState,

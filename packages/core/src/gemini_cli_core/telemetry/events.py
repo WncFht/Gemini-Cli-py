@@ -1,8 +1,3 @@
-"""
-This file is refactored from packages/core_ts/src/telemetry/types.ts.
-It defines the Pydantic models for various telemetry events.
-"""
-
 from datetime import datetime
 from enum import Enum
 from typing import Any, Literal

@@ -1,7 +1,3 @@
-"""
-This file is refactored from packages/core_ts/src/tools/mcp-client.ts.
-"""
-
 import asyncio
 import logging
 import re

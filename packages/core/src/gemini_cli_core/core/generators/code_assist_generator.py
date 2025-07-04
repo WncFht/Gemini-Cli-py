@@ -1,8 +1,3 @@
-"""
-Content generator that uses the CodeAssistService as its backend.
-This acts as an adapter between the GeminiApp and the CodeAssistService.
-"""
-
 from typing import Any
 
 from gemini_cli_core.core.generators.base import ContentGenerator

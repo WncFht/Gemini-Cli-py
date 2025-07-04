@@ -1,10 +1,3 @@
-"""
-This file is refactored from packages/core_ts/src/core/coreToolScheduler.ts.
-
-It defines the graph for executing tool calls, managing validation,
-approval, and execution of tools.
-"""
-
 import asyncio
 import time
 from functools import partial

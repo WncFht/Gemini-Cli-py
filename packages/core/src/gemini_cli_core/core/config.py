@@ -1,7 +1,3 @@
-"""
-Configuration management for Gemini CLI
-"""
-
 import os
 from collections.abc import Callable
 from dataclasses import dataclass, field

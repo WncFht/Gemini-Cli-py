@@ -1,10 +1,3 @@
-"""
-This file is a Python port of packages/core_ts/src/utils/editor.ts.
-
-It provides functionality for detecting the user's preferred editor
-and opening it in a diff view.
-"""
-
 import asyncio
 import logging
 import os

@@ -1,8 +1,3 @@
-"""
-This file is refactored from packages/core_ts/src/core/turn.ts.
-It contains the definitions for events and related data structures used in the system.
-"""
-
 from enum import Enum
 from typing import Any, Literal, Union
 

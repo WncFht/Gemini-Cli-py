@@ -1,8 +1,3 @@
-"""
-This file is refactored from packages/core_ts/src/utils/memoryDiscovery.ts
-and packages/core_ts/src/utils/memoryImportProcessor.ts.
-"""
-
 import logging
 import re
 from pathlib import Path

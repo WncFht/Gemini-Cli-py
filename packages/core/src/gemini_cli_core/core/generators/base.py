@@ -1,8 +1,3 @@
-"""
-内容生成器基类定义 - 从 contentGenerator.ts 迁移
-定义了生成内容、流式生成、计算 token 和生成嵌入向量的核心接口
-"""
-
 from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator
 from enum import Enum

@@ -1,8 +1,3 @@
-"""
-This file is refactored from packages/core_ts/src/utils/errors.ts
-and packages/core_ts/src/utils/errorReporting.ts.
-"""
-
 import json
 import logging
 import tempfile

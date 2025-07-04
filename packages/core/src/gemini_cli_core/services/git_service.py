@@ -1,8 +1,3 @@
-"""
-This file is refactored from packages/core_ts/src/services/gitService.ts.
-It provides a service for interacting with a shadow Git repository for checkpointing.
-"""
-
 import asyncio
 import shutil
 from pathlib import Path

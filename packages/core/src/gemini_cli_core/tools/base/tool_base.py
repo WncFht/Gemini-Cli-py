@@ -1,10 +1,3 @@
-"""
-This file is refactored from packages/core_ts/src/tools/tools.ts.
-
-It defines the base interface (Tool) and abstract base class (BaseTool)
-for all tools in the system, establishing a common contract for tool behavior.
-"""
-
 from abc import ABC, abstractmethod
 from typing import Any, Generic, Protocol, TypeVar
 

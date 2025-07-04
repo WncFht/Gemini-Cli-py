@@ -1,8 +1,3 @@
-"""
-This file serves as the public API for the telemetry module.
-It is refactored from packages/core_ts/src/telemetry/index.ts.
-"""
-
 # Export the main SDK functions
 # Export all event types
 from .events import (

@@ -1,8 +1,3 @@
-"""
-重试机制 - 从 retry.ts 迁移
-提供带指数退避的重试功能
-"""
-
 import asyncio
 import logging
 import random

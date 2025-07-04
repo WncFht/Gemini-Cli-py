@@ -1,7 +1,3 @@
-"""
-This file is refactored from packages/core_ts/src/tools/grep.ts.
-"""
-
 import asyncio
 import re
 from pathlib import Path

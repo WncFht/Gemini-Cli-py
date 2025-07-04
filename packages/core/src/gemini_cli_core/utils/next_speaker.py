@@ -1,7 +1,3 @@
-"""
-下一个发言者检查器 - 从 nextSpeakerChecker.ts 迁移
-"""
-
 import asyncio
 import logging
 

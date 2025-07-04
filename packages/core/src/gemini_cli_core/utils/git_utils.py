@@ -1,8 +1,3 @@
-"""
-This file is refactored from packages/core_ts/src/utils/gitUtils.ts
-and packages/core_ts/src/utils/gitIgnoreParser.ts.
-"""
-
 from pathlib import Path
 
 import pathspec

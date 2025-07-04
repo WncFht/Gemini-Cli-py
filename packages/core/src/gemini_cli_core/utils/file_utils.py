@@ -1,8 +1,3 @@
-"""
-This file is refactored from packages/core_ts/src/utils/fileUtils.ts
-and packages/core_ts/src/utils/bfsFileSearch.ts.
-"""
-
 import mimetypes
 from collections import deque
 from pathlib import Path

@@ -1,7 +1,3 @@
-"""
-WebSocket server for Gemini CLI
-"""
-
 import asyncio
 import json
 import logging

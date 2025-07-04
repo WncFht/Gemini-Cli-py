@@ -1,10 +1,3 @@
-"""
-This file is refactored from packages/core_ts/src/tools/modifiable-tool.ts.
-
-It defines the interface (Protocol) for tools that support having their
-parameters modified by the user via an external editor before execution.
-"""
-
 import difflib
 from pathlib import Path
 from typing import Any, Generic, Protocol, TypeVar

@@ -1,7 +1,3 @@
-"""
-This file is refactored from packages/core_ts/src/tools/mcp-tool.ts.
-"""
-
 import json
 from typing import Any, ClassVar
 

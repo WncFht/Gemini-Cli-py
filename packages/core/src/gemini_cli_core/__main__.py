@@ -1,7 +1,3 @@
-"""
-Gemini CLI Core - Main entry point
-"""
-
 import argparse
 import logging
 import os

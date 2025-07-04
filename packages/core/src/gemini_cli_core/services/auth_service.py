@@ -1,8 +1,3 @@
-"""
-This file is refactored from packages/core_ts/src/code_assist/oauth2.ts.
-It handles the OAuth2 authentication flow for the user.
-"""
-
 import asyncio
 from pathlib import Path
 

@@ -1,8 +1,3 @@
-"""
-This file is refactored from packages/core_ts/src/telemetry/constants.ts.
-It contains constant definitions for telemetry events and metrics.
-"""
-
 SERVICE_NAME = "gemini-cli"
 
 # Event Names

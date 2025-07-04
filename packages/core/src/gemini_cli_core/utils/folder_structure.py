@@ -1,7 +1,3 @@
-"""
-文件夹结构工具 - 从 getFolderStructure.ts 迁移
-"""
-
 from pathlib import Path
 
 import aiofiles

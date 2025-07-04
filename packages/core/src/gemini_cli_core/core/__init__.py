@@ -1,7 +1,3 @@
-"""
-Core module for Gemini CLI
-"""
-
 from .config import (
     DEFAULT_EMBEDDING_MODEL,
     DEFAULT_GEMINI_FLASH_MODEL,

@@ -1,10 +1,3 @@
-"""
-This file is refactored from packages/core_ts/src/core/coreToolScheduler.ts.
-
-It defines the data models for the states of a tool call and the overall
-state for the tool execution graph.
-"""
-
 from typing import Literal, Union
 
 from pydantic import BaseModel, Field

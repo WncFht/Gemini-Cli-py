@@ -1,7 +1,3 @@
-"""
-This file is refactored from packages/core_ts/src/tools/web-fetch.ts.
-"""
-
 import re
 from typing import Any
 

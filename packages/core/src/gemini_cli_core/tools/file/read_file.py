@@ -1,7 +1,3 @@
-"""
-This file is refactored from packages/core_ts/src/tools/read-file.ts.
-"""
-
 import mimetypes
 from pathlib import Path
 from typing import Any

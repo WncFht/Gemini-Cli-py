@@ -1,7 +1,3 @@
-"""
-Event system for Gemini CLI - maintains compatibility with TypeScript frontend
-"""
-
 import asyncio
 from typing import Any, Protocol
 

@@ -1,8 +1,3 @@
-"""
-This file is refactored from packages/core_ts/src/code_assist/codeAssist.ts.
-It provides the core service for interacting with the Code Assist API.
-"""
-
 import asyncio
 from typing import Any
 

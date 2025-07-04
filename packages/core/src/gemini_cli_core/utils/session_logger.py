@@ -1,8 +1,3 @@
-"""
-This file is refactored from packages/core_ts/src/core/logger.ts.
-It handles file-based logging of session messages and checkpoints.
-"""
-
 import json
 import logging
 import time

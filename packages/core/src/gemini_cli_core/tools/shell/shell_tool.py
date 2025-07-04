@@ -1,7 +1,3 @@
-"""
-This file is refactored from packages/core_ts/src/tools/shell.ts.
-"""
-
 import asyncio
 import os
 import shlex

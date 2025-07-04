@@ -1,7 +1,3 @@
-"""
-This file is refactored from packages/core_ts/src/tools/edit.ts.
-"""
-
 import difflib
 from pathlib import Path
 from typing import Any

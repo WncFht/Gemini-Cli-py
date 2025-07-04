@@ -1,8 +1,3 @@
-"""
-This file is refactored from packages/core_ts/src/telemetry/loggers.ts.
-It provides functions to log different types of telemetry events.
-"""
-
 import logging
 from typing import Any
 

@@ -1,8 +1,3 @@
-"""
-模型检查工具 - 从 modelCheck.ts 迁移
-验证和获取有效的模型名称
-"""
-
 import logging
 import re
 from typing import Any

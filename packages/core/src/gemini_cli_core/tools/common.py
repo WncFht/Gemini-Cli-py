@@ -1,8 +1,3 @@
-"""
-This file contains common data models and enums for the tool system,
-refactored from parts of packages/core_ts/src/tools/tools.ts.
-"""
-
 from enum import Enum
 from typing import Literal, Union
 

@@ -1,7 +1,3 @@
-"""
-This file is refactored from packages/core_ts/src/utils/paths.ts.
-"""
-
 import hashlib
 from pathlib import Path
 

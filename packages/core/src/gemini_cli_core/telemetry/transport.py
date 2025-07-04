@@ -1,8 +1,3 @@
-"""
-This file is refactored from packages/core_ts/src/telemetry/clearcut-logger/*.
-It provides a transport for sending telemetry events to the Clearcut backend.
-"""
-
 import asyncio
 import logging
 from datetime import datetime

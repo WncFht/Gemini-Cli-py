@@ -1,7 +1,3 @@
-"""
-This file is refactored from packages/core_ts/src/tools/tool-registry.ts.
-"""
-
 import asyncio
 import json
 import logging

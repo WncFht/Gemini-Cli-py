@@ -1,8 +1,3 @@
-"""
-Gemini 内容生成器实现 - 从 contentGenerator.ts 迁移
-提供与 Gemini API 交互的具体实现
-"""
-
 import os
 from collections.abc import AsyncGenerator
 from typing import Any

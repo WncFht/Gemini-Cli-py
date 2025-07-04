@@ -1,8 +1,3 @@
-"""
-This file is refactored from packages/core_ts/src/telemetry/sdk.ts.
-It provides the main entry point for initializing the telemetry system.
-"""
-
 import atexit
 import json
 import logging

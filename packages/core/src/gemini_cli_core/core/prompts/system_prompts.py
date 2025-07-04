@@ -1,8 +1,3 @@
-"""
-This file is refactored from packages/core_ts/src/core/prompts.ts.
-It provides functions to generate system prompts for the agent.
-"""
-
 import os
 from pathlib import Path
 

@@ -1,8 +1,3 @@
-"""
-This file implements the FastAPI server that acts as the Python backend for Gemini CLI.
-It exposes endpoints for session management, chat streaming, and tool interaction.
-"""
-
 import json
 import uuid
 from collections.abc import AsyncGenerator

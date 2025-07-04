@@ -1,8 +1,3 @@
-"""
-This file is refactored from packages/core_ts/src/telemetry/metrics.ts.
-It provides functions to record various metrics using OpenTelemetry.
-"""
-
 from enum import Enum
 from typing import Any
 

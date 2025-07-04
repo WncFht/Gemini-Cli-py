@@ -1,7 +1,3 @@
-"""
-This file is refactored from packages/core_ts/src/utils/generateContentResponseUtilities.ts.
-"""
-
 from typing import Any
 
 

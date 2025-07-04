@@ -1,11 +1,3 @@
-"""
-This file is refactored from packages/core_ts/src/core/turn.ts and
-packages/core_ts/src/core/geminiChat.ts.
-
-It defines the state for the main conversation graph. In a LangGraph
-architecture, an object of this type will be passed between the nodes of the graph.
-"""
-
 from google.generativeai.types import Content, GenerateContentResponse
 from pydantic import BaseModel, Field
 

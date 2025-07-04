@@ -1,8 +1,3 @@
-"""
-聊天节点实现 - 从 geminiChat.ts 迁移
-提供处理用户输入、调用模型、处理响应等核心节点
-"""
-
 import json
 import logging
 import time

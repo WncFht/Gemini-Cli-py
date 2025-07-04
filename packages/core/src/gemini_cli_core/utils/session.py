@@ -1,8 +1,3 @@
-"""
-This file is refactored from packages/core_ts/src/utils/session.ts
-and packages/core_ts/src/utils/user_id.ts.
-"""
-
 import logging
 from pathlib import Path
 from uuid import uuid4

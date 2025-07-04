@@ -1,8 +1,3 @@
-"""
-应用管理器 - 从 client.ts 迁移的核心功能
-管理聊天会话、初始化环境上下文、处理消息发送等
-"""
-
 import asyncio
 import json
 import logging

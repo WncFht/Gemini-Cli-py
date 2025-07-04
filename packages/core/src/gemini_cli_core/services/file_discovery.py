@@ -1,8 +1,3 @@
-"""
-This file is refactored from packages/core_ts/src/services/fileDiscoveryService.ts.
-It provides a service for discovering and filtering files based on ignore files.
-"""
-
 from pathlib import Path
 
 import pathspec

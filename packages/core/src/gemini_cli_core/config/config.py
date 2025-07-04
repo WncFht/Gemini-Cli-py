@@ -1,10 +1,3 @@
-"""
-This file is refactored from packages/core_ts/src/config/config.ts.
-
-It uses Pydantic's BaseSettings to manage configuration, allowing settings
-to be loaded from environment variables, .env files, and code defaults.
-"""
-
 import logging
 from enum import Enum
 from pathlib import Path
