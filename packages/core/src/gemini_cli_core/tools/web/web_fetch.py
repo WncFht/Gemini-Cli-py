@@ -2,12 +2,15 @@ import re
 from typing import Any
 
 import html2text
-import httpx
 from pydantic import BaseModel, Field
 
 from gemini_cli_core.core.config import Config
 from gemini_cli_core.tools import BaseTool, ToolResult
-from gemini_cli_core.utils. import is_private_ip
+from gemini_cli_core.utils.fetch import (
+    FetchError,
+    fetch_with_timeout,
+    is_private_ip,
+)
 
 
 class WebFetchToolParams(BaseModel):
@@ -54,9 +57,7 @@ class WebFetchTool(BaseTool[WebFetchToolParams, ToolResult]):
             ).replace("/blob/", "/")
 
         try:
-            async with httpx.AsyncClient() as client:
-                response = await client.get(url, timeout=10.0)
-                response.raise_for_status()
+            response = await fetch_with_timeout(url, timeout=10.0)
 
             h = html2text.HTML2Text()
             h.ignore_links = True
@@ -76,7 +77,7 @@ class WebFetchTool(BaseTool[WebFetchToolParams, ToolResult]):
                 llm_content=self.client._get_response_text(result),
                 return_display=f"Content for {url} processed via fallback.",
             )
-        except httpx.HTTPError as e:
+        except FetchError as e:
             return ToolResult(
                 llm_content=f"Error: {e}", return_display=f"Error: {e}"
             )
